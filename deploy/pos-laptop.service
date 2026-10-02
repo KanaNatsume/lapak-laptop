@@ -1,0 +1,20 @@
+[Unit]
+Description=Lapak Laptop POS API
+After=network.target
+
+[Service]
+Type=simple
+User=pos-laptop
+Group=pos-laptop
+WorkingDirectory=/opt/pos-laptop
+EnvironmentFile=/opt/pos-laptop/.env
+ExecStart=/usr/bin/node /opt/pos-laptop/src/server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pos-laptop
+
+[Install]
+WantedBy=multi-user.target

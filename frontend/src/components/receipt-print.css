@@ -1,0 +1,38 @@
+@media screen {
+  .receipt-sheet { width: min(100%, 560px); margin: 0 auto; border: 1px solid #e4e9e3; background: #fff; padding: 22px; color: #17231f; font-family: "DM Sans", sans-serif; }
+  .receipt-a4 { width: min(100%, 794px); }
+}
+.receipt-sheet { color: #17231f; font-family: "DM Sans", sans-serif; }
+.receipt-header { text-align: center; }
+.receipt-header h1 { margin: 0; font-family: "Space Grotesk", sans-serif; font-size: 20px; font-weight: 700; }
+.receipt-header p { margin: 3px 0 0; font-size: 10px; color: #6d7972; }
+.receipt-rule { margin: 14px 0; border-top: 1px dashed #aab5ac; }
+.receipt-meta { display: grid; gap: 6px; font-size: 10px; }
+.receipt-meta div, .receipt-totals div { display: flex; justify-content: space-between; gap: 14px; }
+.receipt-meta span, .receipt-totals span { color: #758179; }
+.receipt-meta strong { font-weight: 600; text-align: right; }
+.receipt-item { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; margin: 10px 0; font-size: 11px; }
+.receipt-item-main strong, .receipt-item-main span { display: block; }
+.receipt-item-main span { margin-top: 3px; color: #78857d; font-size: 10px; }
+.receipt-item > strong { text-align: right; }
+.receipt-serial { grid-column: 1 / -1; color: #68844f; font-size: 9px; letter-spacing: .04em; }
+.receipt-totals { display: grid; gap: 7px; font-size: 10px; }
+.receipt-grand { margin-top: 4px; padding-top: 9px; border-top: 1px dashed #aab5ac; font-size: 13px; font-weight: 700; }
+.receipt-footer { margin-top: 25px; text-align: center; color: #6d7972; font-size: 9px; }
+.receipt-footer p { white-space: pre-line; margin: 0 0 10px; }
+.receipt-footer strong { font-size: 10px; }
+.receipt-80mm { max-width: 302px; }
+.receipt-58mm { max-width: 238px; }
+.receipt-a4 .receipt-meta { grid-template-columns: repeat(3, 1fr); }
+.receipt-a4 .receipt-items { display: grid; grid-template-columns: 1fr; }
+@media print {
+  @page { margin: 0; }
+  body { margin: 0; background: #fff; }
+  body * { visibility: hidden; }
+  .receipt-sheet, .receipt-sheet * { visibility: visible; }
+  .receipt-sheet { position: absolute; left: 0; top: 0; width: 100%; max-width: none; margin: 0; border: 0; padding: 4mm; }
+  .receipt-58mm { width: 58mm; }
+  .receipt-80mm { width: 80mm; }
+  .receipt-a4 { width: 210mm; min-height: 297mm; padding: 15mm; }
+  .receipt-actions { display: none !important; }
+}

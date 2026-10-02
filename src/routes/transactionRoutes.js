@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import { createTransaction, getTransaction, listTransactions, payTransaction } from '../controllers/transactionController.js';
+import { getReceipt } from '../controllers/receiptController.js';
+import { authorize } from '../auth.js';
+const router = Router();
+router.get('/transactions', authorize('admin', 'kasir'), listTransactions);
+router.get('/transactions/:id', authorize('admin', 'kasir', 'teknisi'), getTransaction);
+router.get('/transactions/:id/receipt', authorize('admin', 'kasir', 'teknisi'), getReceipt);
+router.post('/transactions', authorize('admin', 'kasir'), createTransaction);
+router.post('/transactions/:id/payment', authorize('admin', 'kasir'), payTransaction);
+export default router;

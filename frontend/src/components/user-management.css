@@ -1,0 +1,27 @@
+.user-management-page { max-width: 1246px; margin: 0 auto; padding: 0 42px 44px; }
+.access-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; margin-bottom: 18px; }
+.access-summary-card { display: flex; align-items: center; gap: 11px; padding: 14px 16px; background: white; border: 1px solid #e4e9e3; border-radius: 8px; }
+.access-summary-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 7px; color: #5b784b; background: #e7f3d3; }
+.access-summary-card.cashier .access-summary-icon { color: #92733f; background: #f9ebc8; }
+.access-summary-card.technician .access-summary-icon { color: #a86555; background: #ffe0d7; }
+.access-summary-card strong, .access-summary-card span { display: block; }
+.access-summary-card strong { font: 600 19px 'Space Grotesk'; color: var(--ink); }
+.access-summary-card span { margin-top: 2px; color: #89958e; font-size: 10px; }
+.user-management-panel { padding: 22px; }
+.user-search { width: 250px; height: 35px; }
+.user-list { margin-top: 19px; }
+.user-row { display: grid; grid-template-columns: minmax(190px, 1.25fr) minmax(220px, 1.4fr) 80px auto; gap: 16px; align-items: center; min-height: 75px; border-top: 1px solid #edf1ed; color: #68766e; font-size: 11px; }
+.user-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.user-identity > div:last-child { min-width: 0; }
+.user-identity strong, .user-identity small, .role-description { display: block; }
+.user-identity strong { overflow: hidden; color: #405249; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.user-identity small { margin-top: 3px; color: #9da8a0; font-size: 10px; }
+.role-badge, .status-badge { display: inline-block; padding: 4px 8px; border-radius: 10px; font-size: 9px; font-weight: 700; }
+.role-badge.admin { color: #5e8049; background: #e7f3d3; }.role-badge.cashier { color: #947542; background: #f9ebc8; }.role-badge.technician { color: #ae6857; background: #ffe0d7; }
+.role-description { margin-top: 5px; color: #a0aaa3; font-size: 9px; }
+.status-badge.active { color: #648549; background: #eff7e8; }.status-badge.inactive { color: #a56e61; background: #fff0eb; }
+.user-actions { display: flex; gap: 5px; justify-content: flex-end; }.danger-icon { color: #b56e5d; }
+.user-management-heading { padding-bottom: 25px; }
+.form-hint { margin: 0; color: #8b978f; font-size: 11px; line-height: 1.5; }
+@media (max-width: 1050px) { .user-management-page { padding-left: 25px; padding-right: 25px; }.user-row { grid-template-columns: minmax(180px, 1fr) 1fr 70px auto; gap: 10px; } }
+@media (max-width: 720px) { .user-management-page { padding: 0 16px 30px; }.access-summary { grid-template-columns: 1fr 1fr; }.user-management-panel { padding: 16px 13px; overflow-x: auto; }.user-management-panel .panel-header { min-width: 520px; }.user-list { min-width: 680px; }.user-search { width: 210px; }.user-management-heading { padding-bottom: 20px; } }
