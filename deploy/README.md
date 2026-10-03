@@ -4,7 +4,7 @@
 
 ```bash
 sudo useradd --system --home /opt/pos-laptop --shell /usr/sbin/nologin pos-laptop
-sudo mkdir -p /opt/pos-laptop /var/lib/pos-laptop/data /var/backups/pos-laptop
+sudo mkdir -p /opt/pos-laptop /var/lib/pos-laptop/data /var/lib/pos-laptop/backups
 sudo chown -R pos-laptop:pos-laptop /opt/pos-laptop /var/lib/pos-laptop
 ```
 
@@ -15,6 +15,9 @@ PORT=3000
 DATABASE_PATH=/var/lib/pos-laptop/data/pos.sqlite
 DEFAULT_ADMIN_PASSWORD=replace-with-a-long-random-password
 CORS_ORIGIN=https://pos.example.com
+BACKUP_DIR=/var/lib/pos-laptop/backups
+BACKUP_INTERVAL_MS=86400000
+BACKUP_RETENTION_DAYS=30
 ```
 
 The first startup creates the `admin` user with `DEFAULT_ADMIN_PASSWORD`. Change it from the profile screen after login. Do not commit `.env` or reuse the example password.
@@ -54,11 +57,24 @@ After HTTPS is active, set `CORS_ORIGIN` to the HTTPS origin and restart the ser
 
 ## 5. SQLite backup
 
+The application creates an SQLite backup at startup and then every `BACKUP_INTERVAL_MS` into `BACKUP_DIR`. The systemd unit already permits writes to `/var/lib/pos-laptop`, so keep the built-in backup directory there. Copy the backup files to a separate disk or server as part of your disaster-recovery routine.
+
+To verify the backup after installation:
+
+```bash
+sudo -u pos-laptop find /var/lib/pos-laptop/backups -name 'pos-*.sqlite' -ls
+sudo journalctl -u pos-laptop -n 50 --no-pager
+```
+
+An optional external cron backup can be used instead of the built-in schedule when you need a separate mount:
+
 Install the `sqlite3` CLI, make the script executable, and add a daily cron entry:
 
 ```bash
 sudo chmod +x deploy/backup-sqlite.sh
-sudo -u pos-laptop BACKUP_DIR=/var/backups/pos-laptop DATABASE_PATH=/var/lib/pos-laptop/data/pos.sqlite deploy/backup-sqlite.sh
+sudo mkdir -p /var/backups/pos-laptop
+sudo chown pos-laptop:pos-laptop /var/backups/pos-laptop
+sudo -u pos-laptop BACKUP_DIR=/var/backups/pos-laptop DATABASE_PATH=/var/lib/pos-laptop/data/pos.sqlite /opt/pos-laptop/deploy/backup-sqlite.sh
 ```
 
-The script uses SQLite online backup and removes backups older than 14 days. Copy backups to a separate disk or server for disaster recovery.
+The script uses SQLite online backup and removes backups older than 14 days. Do not schedule both backup methods unless duplicate backups are intentional.

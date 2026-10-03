@@ -1,0 +1,29 @@
+services:
+  pos-laptop:
+    build: .
+    container_name: pos-laptop
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_PATH: /var/lib/pos-laptop/data/pos.sqlite
+      BACKUP_DIR: /var/lib/pos-laptop/backups
+      BACKUP_INTERVAL_MS: ${BACKUP_INTERVAL_MS:-86400000}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?Set DEFAULT_ADMIN_PASSWORD in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+    volumes:
+      - pos_data:/var/lib/pos-laptop/data
+      - pos_backups:/var/lib/pos-laptop/backups
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  pos_data:
+  pos_backups:

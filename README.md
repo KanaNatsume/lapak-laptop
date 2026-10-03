@@ -15,6 +15,20 @@ API berjalan di `http://localhost:3000`, sedangkan SPA tersedia di `http://local
 
 Backup SQLite dibuat otomatis saat server mulai dan setiap `BACKUP_INTERVAL_MS` (default 24 jam) ke `BACKUP_DIR` (default `data/backups`). File backup yang lebih lama dari `BACKUP_RETENTION_DAYS` (default 30 hari) dihapus. Salin backup ke lokasi terpisah atau storage eksternal untuk perlindungan terhadap kerusakan disk.
 
+## Menjalankan dengan Docker
+
+Docker Compose menyimpan database dan backup pada volume persisten terpisah:
+
+```bash
+cp .env.example .env
+# Edit .env dan ganti DEFAULT_ADMIN_PASSWORD
+docker compose up -d --build
+docker compose ps
+docker compose logs -f pos-laptop
+```
+
+Aplikasi tersedia di `http://localhost:3000`. Hentikan container tanpa menghapus data dengan `docker compose down`; jangan gunakan `docker compose down -v` kecuali memang ingin menghapus database dan backup. Untuk penggunaan dengan domain atau scanner kamera, pasang Nginx/Traefik di depan container dan aktifkan HTTPS. File Docker tersedia di `Dockerfile`, `docker-compose.yml`, dan `.dockerignore`.
+
 Login awal untuk instalasi baru: username `admin`, password mengikuti `DEFAULT_ADMIN_PASSWORD` di `.env`. Ganti password dari halaman profil setelah login. Session disimpan di SQLite dengan expiry 8 jam dan seluruh endpoint operasional memerlukan `Authorization: Bearer <token>`.
 
 ## Struktur backend
