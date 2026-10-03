@@ -3,8 +3,8 @@ services:
     build: .
     container_name: pos-laptop
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -23,6 +23,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: pos-laptop-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      pos-laptop:
+        condition: service_healthy
 
 volumes:
   pos_data:

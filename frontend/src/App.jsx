@@ -122,6 +122,12 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   }, []);
   useEffect(() => { getSettings().then(setStoreSettings).catch(() => {}); }, []);
 
+  const today = new Date().toISOString().slice(0, 10);
+  const todayTransactions = transactions.filter((transaction) => transaction.created_at?.slice(0, 10) === today);
+  const todaySalesTotal = todayTransactions.reduce((total, transaction) => total + Number(transaction.grand_total || 0), 0);
+  const activeServiceTickets = loadedServiceTickets.filter((ticket) => !['selesai', 'diambil', 'batal gagal'].includes(ticket.status));
+  const approvalServiceTickets = loadedServiceTickets.filter((ticket) => ticket.status === 'menunggu persetujuan');
+
   const filteredProducts = products.filter((product) => {
     const query = searchTerm.toLowerCase();
     return (!category || product.category === category) && (product.name.toLowerCase().includes(query) || product.serial.toLowerCase().includes(query) || product.brand.toLowerCase().includes(query));
@@ -242,7 +248,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
         <nav className="primary-nav" aria-label="Navigasi utama">
           <p className="nav-label">Workspace</p>
           {can('admin', 'kasir') && <NavButton icon={<ShoppingCart size={18} />} label="Kasir" active={activePage === 'kasir'} onClick={() => setActivePage('kasir')} badge="3" />}
-          {can('admin', 'kasir', 'teknisi') && <NavButton icon={<Wrench size={18} />} label="Servis" active={activePage === 'servis'} onClick={() => setActivePage('servis')} badge="2" />}
+          {can('admin', 'kasir', 'teknisi') && <NavButton icon={<Wrench size={18} />} label="Servis" active={activePage === 'servis'} onClick={() => setActivePage('servis')} badge={activeServiceTickets.length ? String(activeServiceTickets.length) : undefined} />}
           {can('admin', 'kasir') && <NavButton icon={<ClipboardList size={18} />} label="Riwayat transaksi" active={activePage === 'riwayat'} onClick={() => setActivePage('riwayat')} />}
           <p className="nav-label secondary-label">Kelola</p>
           {can('admin', 'kasir', 'teknisi') && <NavButton icon={<ShoppingBag size={18} />} label="Inventori" active={activePage === 'inventori'} onClick={() => setActivePage('inventori')} />}
@@ -251,7 +257,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
           {can('admin') && <NavButton icon={<UsersRound size={18} />} label="User & akses" active={activePage === 'users'} onClick={() => setActivePage('users')} />}
         </nav>
         <div className="sidebar-bottom">
-          <div className="mini-metric"><span>Penjualan hari ini</span><strong>{formatPrice(24750000)}</strong><small><ArrowUpRight size={13} /> 12,4% vs kemarin</small></div>
+          <div className="mini-metric"><span>Penjualan hari ini</span><strong>{formatPrice(todaySalesTotal)}</strong><small><ArrowUpRight size={13} /> {todayTransactions.length} transaksi tercatat</small></div>
           {can('admin') && <NavButton icon={<Settings size={18} />} label="Pengaturan" active={activePage === 'pengaturan'} onClick={() => setActivePage('pengaturan')} />}
           <button className="profile" onClick={() => setActivePage('user')}><div className="avatar">{authUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</div><div><strong>{authUser.name}</strong><span>{authUser.role}</span></div><ChevronDown size={16} /></button>
         </div>
@@ -263,7 +269,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
           <div className="topbar-actions"><div className="notification-wrap"><button className="icon-button" aria-label="Notifikasi" onClick={() => setShowNotifications(!showNotifications)}><Bell size={19} />{notifications.length > 0 && <i />}</button>{showNotifications && <NotificationPanel notifications={notifications} onClose={() => setShowNotifications(false)} />}</div><div className="date-chip">{new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date())}</div></div>
         </header>
         {activePage === 'kasir' && can('admin', 'kasir') ? (
-          <CashierView {...{ cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, openProductModal: () => { setEditingProduct(null); setModal('product'); }, openCustomerModal: () => setModal('customer') }} />
+          <CashierView {...{ cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount: todayTransactions.length, todaySalesTotal, activeServiceCount: activeServiceTickets.length, approvalServiceCount: approvalServiceTickets.length, openProductModal: () => { setEditingProduct(null); setModal('product'); }, openCustomerModal: () => setModal('customer') }} />
         ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
             : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} />
             : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} />
@@ -288,10 +294,10 @@ function NavButton({ icon, label, active, onClick, badge }) {
 }
 
 function CashierView(props) {
-  const { cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, openProductModal, openCustomerModal } = props;
+  const { cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount, todaySalesTotal, activeServiceCount, approvalServiceCount, openProductModal, openCustomerModal } = props;
   return <>
     <section className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> TRANSAKSI BARU</div><h1>Mulai penjualan <em>hari ini.</em></h1><p>Tambahkan barang ke keranjang, pilih pelanggan, lalu selesaikan pembayaran.</p></div><div className="heading-actions"><button className="button ghost" onClick={() => window.print()}><Printer size={16} /> Cetak laporan</button><button className="button primary" onClick={openProductModal}><Plus size={17} /> Produk baru</button></div></section>
-    <div className="stats-row"><StatCard label="Penjualan hari ini" value="12" detail="3 sedang diproses" icon={<CircleDollarSign size={19} />} accent="green" /><StatCard label="Nilai penjualan" value="Rp 24,75 jt" detail="+12,4% dari kemarin" icon={<ArrowUpRight size={19} />} accent="yellow" /><StatCard label="Servis aktif" value="8" detail="2 perlu persetujuan" icon={<Wrench size={19} />} accent="coral" /></div>
+    <div className="stats-row"><StatCard label="Transaksi hari ini" value={todayTransactionCount} detail="Transaksi tercatat" icon={<CircleDollarSign size={19} />} accent="green" /><StatCard label="Nilai penjualan" value={formatPrice(todaySalesTotal)} detail="Total transaksi hari ini" icon={<ArrowUpRight size={19} />} accent="yellow" /><StatCard label="Servis aktif" value={activeServiceCount} detail={`${approvalServiceCount} perlu persetujuan`} icon={<Wrench size={19} />} accent="coral" /></div>
     <div className="workspace-grid">
       <section className="catalog-panel panel">
         <div className="panel-header"><div><h2>Pilih barang</h2><p>{filteredProducts.length} barang tersedia untuk dijual</p></div><div className="filter-pill"><span className="filter-dot" /> {category || 'Semua kategori'} <ChevronDown size={14} /></div></div>

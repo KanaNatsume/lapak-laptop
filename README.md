@@ -27,7 +27,7 @@ docker compose ps
 docker compose logs -f pos-laptop
 ```
 
-Aplikasi tersedia di `http://localhost:3000`. Hentikan container tanpa menghapus data dengan `docker compose down`; jangan gunakan `docker compose down -v` kecuali memang ingin menghapus database dan backup. Untuk penggunaan dengan domain atau scanner kamera, pasang Nginx/Traefik di depan container dan aktifkan HTTPS. File Docker tersedia di `Dockerfile`, `docker-compose.yml`, dan `.dockerignore`.
+Aplikasi pada deployment Tunnel tidak membuka port 3000 ke host; akses publik menggunakan hostname Cloudflare. Hentikan container tanpa menghapus data dengan `docker compose down`; jangan gunakan `docker compose down -v` kecuali memang ingin menghapus database dan backup. Untuk deployment tanpa IP publik, gunakan service `cloudflared` pada Compose: buat tunnel di Cloudflare Zero Trust, set `CLOUDFLARE_TUNNEL_TOKEN` di `.env`, lalu arahkan public hostname ke service `http://pos-laptop:3000` (nama service Docker, bukan `localhost`). Set `CORS_ORIGIN` ke URL HTTPS public hostname. File Docker tersedia di `Dockerfile`, `docker-compose.yml`, dan `.dockerignore`.
 
 Login awal untuk instalasi baru: username `admin`, password mengikuti `DEFAULT_ADMIN_PASSWORD` di `.env`. Ganti password dari halaman profil setelah login. Session disimpan di SQLite dengan expiry 8 jam dan seluruh endpoint operasional memerlukan `Authorization: Bearer <token>`.
 
