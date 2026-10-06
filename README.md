@@ -92,14 +92,9 @@ Endpoint checkout harus memproses header transaksi dan seluruh item dalam satu `
 
 ## Aturan bisnis inti
 
-- Produk laptop memiliki `serial_number` unik dan biasanya `stock = 1`; index partial mencegah duplikasi tanpa mengharuskan serial untuk aksesoris.
-- Saat item produk laptop terjual, server mengunci dan mengurangi stok berdasarkan `reference_id` serta memvalidasi serial masih tersedia. Kegagalan salah satu item me-roll back seluruh checkout.
-- Item `trade_in` disimpan sebagai nilai negatif secara logika checkout, tetapi kolom `price` database tetap non-negatif; controller menyimpan nama dan nilai taksiran pada item lalu menghitung pengurang di subtotal transaksi.
-- Perubahan status servis divalidasi dalam urutan `antrean -> pengecekan -> menunggu_persetujuan -> proses_servis -> selesai -> diambil`. `batal_gagal` boleh dipilih dari status aktif dan mengisi `finished_at`.
-- Saat servis menjadi `batal_gagal`, controller menghitung opsi penagihan dari `down_payment` dan `failure_fee`: gratis jika keduanya nol, potong DP bila DP lebih besar dari biaya cek, atau tagihkan biaya cek sesuai kebijakan toko. Hasil keputusan dan nominal akhir disimpan dalam transaksi servis.
-- Nota thermal mengambil invoice, pelanggan, item, serial number, `warranty_note`, metode pembayaran, dan total akhir dari API receipt.
 
 ## Komponen SPA yang disarankan
+Import produk dari menu Inventori menyediakan template `.xlsx` yang sudah diformat. Kolom inti meliputi `category`, `name`, `brand`, `serial_number`, `cost_price`, `selling_price`, `stock`, dan `notes`; kolom atribut spesifikasi juga tersedia untuk processor, GPU, memory, storage, display, port, fitur, kelengkapan, sumber unit, fisik, keyboard, touchpad, baterai, benchmark, charger, audio, kamera, security, dan lock status. Untuk atribut pilihan ganda, pisahkan nilai dengan karakter `|`, misalnya `512GB SSD NVMe|1TB HDD`. Import divalidasi secara all-or-nothing dan serial number tetap harus unik.
 
 ```text
 src/frontend/

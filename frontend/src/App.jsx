@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
-import { changePassword, createCustomer, createProduct, createService, createTransaction, getCustomers, getNotifications, getProducts, getReceipt, getServices, getSettings, getTransactions, login, logout, payTransaction, updateProduct, updateServiceStatus } from './api/client.js';
+import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServices, getSettings, getTransactions, importProducts, login, logout, payTransaction, updateProduct, updateServiceStatus } from './api/client.js';
 import ReceiptPrint from './components/ReceiptPrint.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
 import UserManagementPage from './components/UserManagementPage.jsx';
 import CashLedgerPage from './components/CashLedgerPage.jsx';
 import './components/serial-scanner.css';
+import './components/product-import.css';
 import {
   ArrowUpRight,
   Bell,
@@ -14,6 +15,8 @@ import {
   CircleDollarSign,
   ClipboardList,
   Laptop,
+  FileSpreadsheet,
+  Download,
   Minus,
   Plus,
   Pencil,
@@ -54,7 +57,7 @@ const demoCustomers = [
 
 const currency = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 });
 const formatPrice = (value) => currency.format(value).replace('Rp', 'Rp ');
-const formatSpecs = (specs = {}) => Object.entries(specs).filter(([key, value]) => !key.endsWith('_note') && value).flatMap(([, value]) => Array.isArray(value) ? value : typeof value === 'object' ? Object.values(value).filter(Boolean) : value).join(' · ') || 'Spesifikasi belum diisi';
+const formatSpecs = (specs = {}) => Object.entries(specs).filter(([key, value]) => key !== 'grade_condition' && !key.endsWith('_note') && value).flatMap(([, value]) => Array.isArray(value) ? value : typeof value === 'object' ? Object.values(value).filter(Boolean) : value).join(' · ') || 'Spesifikasi belum diisi';
 const pageTitle = (page) => ({ kasir: 'Kasir baru', servis: 'Antrian servis', riwayat: 'Riwayat transaksi', inventori: 'Inventori', pelanggan: 'Pelanggan', kas: 'Kas toko', pengaturan: 'Pengaturan', users: 'Manajemen user', user: 'Profil pengguna' }[page] || 'Workspace');
 const escapePrintText = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 
@@ -183,6 +186,20 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
     } catch (error) { setToast(error.message); }
   }
 
+  async function importProductFile(file) {
+    try {
+      const result = await importProducts(file);
+      const normalized = result.products.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: item.category === 'laptop' ? 'Laptop' : item.category === 'aksesoris' ? 'Aksesoris' : 'Part copotan', spec: formatSpecs(item.specs) }));
+      setProducts((current) => [...normalized, ...current]);
+      setInventoryProducts((current) => [...normalized, ...current]);
+      setToast(`${result.imported} produk berhasil diimport`);
+    } catch (error) { setToast(error.message); }
+  }
+
+  async function downloadProductTemplate() {
+    try { await downloadProductImportTemplate(); } catch (error) { setToast(error.message); }
+  }
+
   async function saveCustomer(payload) {
     try {
       const saved = await createCustomer(payload);
@@ -272,7 +289,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
           <CashierView {...{ cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount: todayTransactions.length, todaySalesTotal, activeServiceCount: activeServiceTickets.length, approvalServiceCount: approvalServiceTickets.length, openProductModal: () => { setEditingProduct(null); setModal('product'); }, openCustomerModal: () => setModal('customer') }} />
         ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
             : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} />
-            : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} />
+            : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
               : activePage === 'pelanggan' ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} />
                 : activePage === 'kas' && can('admin', 'kasir') ? <CashLedgerPage onToast={setToast} />
                 : activePage === 'users' && can('admin') ? <UserManagementPage currentUser={authUser} onCurrentUserUpdated={(user) => { localStorage.setItem('pos_user', JSON.stringify(user)); onAuthUserUpdated(user); }} onToast={setToast} />
@@ -364,9 +381,9 @@ const specificationPresets = [
 ];
 
 function ProductModal({ product, onClose, onSave }) {
-  const [form, setForm] = useState(() => product ? { category: product.category === 'Laptop' ? 'laptop' : product.category === 'Aksesoris' ? 'aksesoris' : 'part_copotan', name: product.name, brand: product.brand || '', serial_number: product.serial_number || product.serial || '', selling_price: product.selling_price, cost_price: product.cost_price, stock: product.stock, specs: product.specs || {}, notes: product.notes || '' } : { category: 'laptop', name: '', brand: '', serial_number: '', selling_price: '', cost_price: '', stock: '1', specs: {}, notes: '' });
+  const [form, setForm] = useState(() => product ? { category: product.category === 'Laptop' ? 'laptop' : product.category === 'Aksesoris' ? 'aksesoris' : 'part_copotan', name: product.name, brand: product.brand || '', serial_number: product.serial_number || product.serial || '', grade_condition: product.grade_condition || product.grade || 'B', selling_price: product.selling_price, cost_price: product.cost_price, stock: product.stock, specs: { ...(product.specs || {}), grade_condition: product.grade_condition || product.grade || 'B' }, notes: product.notes || '' } : { category: 'laptop', name: '', brand: '', serial_number: '', grade_condition: 'B', selling_price: '', cost_price: '', stock: '1', specs: { grade_condition: 'B' }, notes: '' });
   const update = (key) => (event) => setForm({ ...form, [key]: event.target.value });
-  function submit(event) { event.preventDefault(); onSave({ ...form, selling_price: Number(form.selling_price), cost_price: Number(form.cost_price || 0), stock: Number(form.stock), notes: form.notes }); }
+  function submit(event) { event.preventDefault(); onSave({ ...form, grade_condition: form.specs.grade_condition || form.grade_condition || 'B', selling_price: Number(form.selling_price), cost_price: Number(form.cost_price || 0), stock: Number(form.stock), notes: form.notes }); }
   return <Modal title="Tambah produk" onClose={onClose}><form className="modal-form product-form" onSubmit={submit}><div className="form-grid"><Field label="Nama / model" required><input required value={form.name} onChange={update('name')} placeholder="Contoh: ThinkPad T480" /></Field><Field label="Brand"><input value={form.brand} onChange={update('brand')} placeholder="Lenovo" /></Field><Field label="Kategori"><select value={form.category} onChange={update('category')}><option value="laptop">Laptop</option><option value="aksesoris">Aksesoris</option><option value="part_copotan">Part copotan</option></select></Field><Field label="Serial number"><div className="scan-field"><input value={form.serial_number} onChange={update('serial_number')} placeholder="Opsional untuk aksesoris" /><SerialScanner onDetected={(serial_number) => setForm({ ...form, serial_number })} /></div></Field><Field label="Stok"><input required type="number" min="0" value={form.stock} onChange={update('stock')} /></Field><Field label="Harga modal"><input required type="number" min="0" value={form.cost_price} onChange={update('cost_price')} placeholder="0" /></Field><Field label="Harga jual"><input required type="number" min="0" value={form.selling_price} onChange={update('selling_price')} placeholder="0" /></Field></div><section className="specification-editor"><div className="specification-heading"><div><strong>Preset atribut spesifikasi</strong><small>Pilih spesifikasi yang sesuai. Anda bisa menambahkan pilihan sendiri.</small></div><span>{specificationPresets.filter((group) => { const value = form.specs[group.key]; return Array.isArray(value) ? value.length : value; }).length} bagian terisi</span></div><div className="specification-grid">{specificationPresets.map((group) => <SpecificationGroup key={group.key} group={group} value={form.specs[group.key]} note={form.specs[`${group.key}_note`] || ''} onChange={(value) => setForm({ ...form, specs: { ...form.specs, [group.key]: value } })} onNoteChange={(note) => setForm({ ...form, specs: { ...form.specs, [`${group.key}_note`]: note } })} />)}</div></section><Field label="Keterangan umum"><textarea value={form.notes} onChange={update('notes')} rows="3" placeholder="Kondisi fisik, kelengkapan, catatan garansi, atau keterangan lain..." /></Field><ModalActions onClose={onClose} /></form></Modal>;
 }
 
@@ -463,8 +480,8 @@ function TransactionHistory({ transactions, onPrint, onSettle }) {
   return <><SectionHeading eyebrow="CATATAN PENJUALAN" title={<>Semua transaksi, <em>tersimpan.</em></>} description="Lihat invoice, cetak ulang nota, atau terima pelunasan." /><section className="panel table-panel"><div className="panel-header"><div><h2>Riwayat transaksi</h2><p>{transactions.length} transaksi terbaru</p></div><div className="search-field"><Search size={15} /><input placeholder="Cari invoice..." /></div></div><div className="history-list">{transactions.length ? transactions.map((transaction) => <div className="history-row" key={transaction.id}><div><strong>{transaction.invoice_number}</strong><small>{transaction.created_at}</small></div><span>{transaction.transaction_type} · {transaction.payment_status}</span><strong>{formatPrice(transaction.grand_total)}</strong><div className="history-actions">{transaction.payment_status !== 'lunas' && <button className="settle-button" onClick={() => onSettle(transaction)}>Pelunasan</button>}<button className="icon-button bordered" onClick={() => onPrint(transaction)} aria-label={`Cetak ${transaction.invoice_number}`}><Printer size={16} /></button></div></div>) : <div className="empty-state"><ClipboardList size={30} /><strong>Belum ada transaksi</strong><span>Transaksi yang selesai akan muncul di sini.</span></div>}</div></section></>;
 }
 
-function InventoryView({ products, openProductModal, onEditProduct }) {
-  return <><SectionHeading eyebrow="KELOLA STOK" title={<>Inventori yang <em>rapi.</em></>} description="Pantau barang, serial number, dan stok yang tersedia." action={openProductModal ? 'Tambah produk' : undefined} onAction={openProductModal} /><section className="panel table-panel"><div className="panel-header"><div><h2>Daftar inventori</h2><p>{products.length} produk aktif</p></div><div className="search-field"><Search size={15} /><input placeholder="Cari produk atau serial..." /></div></div><div className="history-list">{products.length ? products.map((product) => <div className="history-row" key={product.id}><div><strong>{product.name}</strong><small>{product.brand} · {product.serial || 'Tanpa serial'}</small></div><strong>{formatPrice(product.price)}</strong><span className="stock-label">{product.stock} stok</span>{onEditProduct ? <button className="icon-button bordered" onClick={() => onEditProduct(product)} aria-label={`Edit ${product.name}`}><Pencil size={15} /></button> : <span />}</div>) : <div className="empty-state"><ShoppingBag size={30} /><strong>Inventori kosong</strong><span>Tambahkan produk pertama Anda.</span></div>}</div></section></>;
+function InventoryView({ products, openProductModal, onEditProduct, onImportProducts, onDownloadTemplate }) {
+  return <><SectionHeading eyebrow="KELOLA STOK" title={<>Inventori yang <em>rapi.</em></>} description="Pantau barang, serial number, dan stok yang tersedia." action={openProductModal ? 'Tambah produk' : undefined} onAction={openProductModal} /><section className="panel table-panel"><div className="panel-header"><div><h2>Daftar inventori</h2><p>{products.length} produk aktif</p></div><div className="inventory-actions">{onImportProducts && <><button className="button ghost" onClick={onDownloadTemplate}><Download size={15} /> Template Excel</button><label className="button primary" htmlFor="product-import-file"><FileSpreadsheet size={15} /> Import Excel</label><input id="product-import-file" hidden type="file" accept=".xlsx,.xls,.csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportProducts(file); event.target.value = ''; }} /></>}<div className="search-field"><Search size={15} /><input placeholder="Cari produk atau serial..." /></div></div></div><div className="history-list">{products.length ? products.map((product) => <div className="history-row" key={product.id}><div><strong>{product.name}</strong><small>{product.brand} · {product.serial || 'Tanpa serial'}</small></div><strong>{formatPrice(product.price)}</strong><span className="stock-label">{product.stock} stok</span>{onEditProduct ? <button className="icon-button bordered" onClick={() => onEditProduct(product)} aria-label={`Edit ${product.name}`}><Pencil size={15} /></button> : <span />}</div>) : <div className="empty-state"><ShoppingBag size={30} /><strong>Inventori kosong</strong><span>Tambahkan produk pertama Anda.</span></div>}</div></section></>;
 }
 
 function CustomerView({ customers, openCustomerModal }) {

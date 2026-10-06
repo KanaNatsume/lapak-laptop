@@ -1,0 +1,2 @@
+.inventory-actions { display: flex; align-items: center; gap: 8px; }.inventory-actions > .button { white-space: nowrap; }.inventory-actions .search-field { width: 210px; height: 35px; }
+@media (max-width: 800px) { .inventory-actions { flex-wrap: wrap; }.inventory-actions .search-field { width: 100%; order: 3; } }

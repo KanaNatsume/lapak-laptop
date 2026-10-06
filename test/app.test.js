@@ -19,7 +19,9 @@ let baseUrl;
 const tokens = {};
 
 async function request(pathname, options = {}) {
-  const response = await fetch(`${baseUrl}${pathname}`, { ...options, headers: { 'Content-Type': 'application/json', ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}), ...(options.headers || {}) } });
+  const headers = { ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}), ...(options.headers || {}) };
+  if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  const response = await fetch(`${baseUrl}${pathname}`, { ...options, headers });
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : null };
 }
@@ -88,4 +90,19 @@ test('cash: manual entries require cashier role and service payments record actu
   assert.equal(payment.status, 200);
   const afterPayment = db.prepare("SELECT COALESCE(SUM(amount), 0) AS total FROM cash_entries WHERE category = 'Servis'").get().total;
   assert.equal(afterPayment, 200000);
+});
+
+test('product import: accepts the simple CSV template and creates products atomically', async () => {
+  const form = new FormData();
+  form.append('file', new Blob(['category,name,brand,serial_number,cost_price,selling_price,stock,notes,gpu,memory,storage,physical_description,battery_health\nlaptop,Imported Laptop,Lenovo,IMPORT-001,100,200,2,From CSV,RTX 3050,16GB DDR4,512GB SSD NVMe|1TB HDD,Ada lecet ringan,88\n'], { type: 'text/csv' }), 'products.csv');
+  const imported = await request('/api/products/import', { method: 'POST', token: tokens.cashier, body: form });
+  assert.equal(imported.status, 201);
+  assert.equal(imported.body.imported, 1);
+  const product = db.prepare('SELECT * FROM products WHERE serial_number = ?').get('IMPORT-001');
+  assert.equal(product.name, 'Imported Laptop');
+  const specs = JSON.parse(product.specs);
+  assert.equal(specs.gpu, 'RTX 3050');
+  assert.deepEqual(specs.storage, ['512GB SSD NVMe', '1TB HDD']);
+  assert.equal(specs.physical.description, 'Ada lecet ringan');
+  assert.equal(specs.battery.health, '88');
 });
