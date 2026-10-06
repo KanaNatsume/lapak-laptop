@@ -4,9 +4,10 @@ import { createProduct, downloadProductImportTemplate, importProducts, listProdu
 import { authorize } from '../auth.js';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const asyncHandler = (handler) => (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 router.get('/products', authorize('admin', 'kasir', 'teknisi'), listProducts);
 router.get('/products/import/template', authorize('admin', 'kasir'), downloadProductImportTemplate);
 router.post('/products', authorize('admin', 'kasir'), createProduct);
-router.post('/products/import', authorize('admin', 'kasir'), upload.single('file'), importProducts);
+router.post('/products/import', authorize('admin', 'kasir'), upload.single('file'), asyncHandler(importProducts));
 router.put('/products/:id', authorize('admin', 'kasir'), updateProduct);
 export default router;

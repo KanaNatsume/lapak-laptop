@@ -189,10 +189,23 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   async function importProductFile(file) {
     try {
       const result = await importProducts(file);
+      const storedOptions = JSON.parse(localStorage.getItem('pos_custom_spec_options') || '{}');
+      for (const product of result.products) {
+        for (const group of specificationPresets) {
+          const value = product.specs?.[group.key];
+          if (group.fields || value === undefined || value === null || value === '') continue;
+          const importedOptions = Array.isArray(value) ? value : [value];
+          const builtIn = new Set((group.options || []).map((option) => String(option).trim().toLowerCase()));
+          const existingOptions = storedOptions[group.key] || [];
+          storedOptions[group.key] = uniqueSpecificationOptions([...existingOptions, ...importedOptions.map(String)]).filter((option) => !builtIn.has(option.trim().toLowerCase()));
+        }
+      }
+      localStorage.setItem('pos_custom_spec_options', JSON.stringify(storedOptions));
       const normalized = result.products.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: item.category === 'laptop' ? 'Laptop' : item.category === 'aksesoris' ? 'Aksesoris' : 'Part copotan', spec: formatSpecs(item.specs) }));
-      setProducts((current) => [...normalized, ...current]);
-      setInventoryProducts((current) => [...normalized, ...current]);
-      setToast(`${result.imported} produk berhasil diimport`);
+      const mergeProducts = (current) => { const importedIds = new Set(normalized.map((item) => item.id)); return [...normalized, ...current.filter((item) => !importedIds.has(item.id))]; };
+      setProducts(mergeProducts);
+      setInventoryProducts(mergeProducts);
+      setToast(`${result.imported} produk berhasil diimport${result.skipped ? `, ${result.skipped} baris dilewati karena sudah ada` : ''}`);
     } catch (error) { setToast(error.message); }
   }
 
@@ -381,21 +394,27 @@ const specificationPresets = [
 ];
 
 function ProductModal({ product, onClose, onSave }) {
-  const [form, setForm] = useState(() => product ? { category: product.category === 'Laptop' ? 'laptop' : product.category === 'Aksesoris' ? 'aksesoris' : 'part_copotan', name: product.name, brand: product.brand || '', serial_number: product.serial_number || product.serial || '', grade_condition: product.grade_condition || product.grade || 'B', selling_price: product.selling_price, cost_price: product.cost_price, stock: product.stock, specs: { ...(product.specs || {}), grade_condition: product.grade_condition || product.grade || 'B' }, notes: product.notes || '' } : { category: 'laptop', name: '', brand: '', serial_number: '', grade_condition: 'B', selling_price: '', cost_price: '', stock: '1', specs: { grade_condition: 'B' }, notes: '' });
+  const [form, setForm] = useState(() => product ? { category: product.category === 'Laptop' ? 'laptop' : product.category === 'Aksesoris' ? 'aksesoris' : 'part_copotan', name: product.name, brand: product.brand || '', serial_number: product.serial_number || product.serial || '', selling_price: product.selling_price, cost_price: product.cost_price, stock: product.stock, specs: product.specs || {}, notes: product.notes || '' } : { category: 'laptop', name: '', brand: '', serial_number: '', selling_price: '', cost_price: '', stock: '1', specs: {}, notes: '' });
   const update = (key) => (event) => setForm({ ...form, [key]: event.target.value });
-  function submit(event) { event.preventDefault(); onSave({ ...form, grade_condition: form.specs.grade_condition || form.grade_condition || 'B', selling_price: Number(form.selling_price), cost_price: Number(form.cost_price || 0), stock: Number(form.stock), notes: form.notes }); }
+  function submit(event) { event.preventDefault(); onSave({ ...form, selling_price: Number(form.selling_price), cost_price: Number(form.cost_price || 0), stock: Number(form.stock), notes: form.notes }); }
   return <Modal title="Tambah produk" onClose={onClose}><form className="modal-form product-form" onSubmit={submit}><div className="form-grid"><Field label="Nama / model" required><input required value={form.name} onChange={update('name')} placeholder="Contoh: ThinkPad T480" /></Field><Field label="Brand"><input value={form.brand} onChange={update('brand')} placeholder="Lenovo" /></Field><Field label="Kategori"><select value={form.category} onChange={update('category')}><option value="laptop">Laptop</option><option value="aksesoris">Aksesoris</option><option value="part_copotan">Part copotan</option></select></Field><Field label="Serial number"><div className="scan-field"><input value={form.serial_number} onChange={update('serial_number')} placeholder="Opsional untuk aksesoris" /><SerialScanner onDetected={(serial_number) => setForm({ ...form, serial_number })} /></div></Field><Field label="Stok"><input required type="number" min="0" value={form.stock} onChange={update('stock')} /></Field><Field label="Harga modal"><input required type="number" min="0" value={form.cost_price} onChange={update('cost_price')} placeholder="0" /></Field><Field label="Harga jual"><input required type="number" min="0" value={form.selling_price} onChange={update('selling_price')} placeholder="0" /></Field></div><section className="specification-editor"><div className="specification-heading"><div><strong>Preset atribut spesifikasi</strong><small>Pilih spesifikasi yang sesuai. Anda bisa menambahkan pilihan sendiri.</small></div><span>{specificationPresets.filter((group) => { const value = form.specs[group.key]; return Array.isArray(value) ? value.length : value; }).length} bagian terisi</span></div><div className="specification-grid">{specificationPresets.map((group) => <SpecificationGroup key={group.key} group={group} value={form.specs[group.key]} note={form.specs[`${group.key}_note`] || ''} onChange={(value) => setForm({ ...form, specs: { ...form.specs, [group.key]: value } })} onNoteChange={(note) => setForm({ ...form, specs: { ...form.specs, [`${group.key}_note`]: note } })} />)}</div></section><Field label="Keterangan umum"><textarea value={form.notes} onChange={update('notes')} rows="3" placeholder="Kondisi fisik, kelengkapan, catatan garansi, atau keterangan lain..." /></Field><ModalActions onClose={onClose} /></form></Modal>;
 }
 
+function uniqueSpecificationOptions(options) {
+  const seen = new Set();
+  return options.filter((option) => { const key = String(option).trim().toLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+}
+
 function SpecificationGroup({ group, value, customOptions = [], onOptionsChange, note, onChange, onNoteChange }) {
-  const [storedOptions, setStoredOptions] = useState(() => JSON.parse(localStorage.getItem('pos_custom_spec_options') || '{}')[group.key] || []);
+  const [storedOptions, setStoredOptions] = useState(() => uniqueSpecificationOptions(JSON.parse(localStorage.getItem('pos_custom_spec_options') || '{}')[group.key] || []));
   customOptions = storedOptions;
-  const options = [...(group.options || []), ...customOptions];
+  const options = uniqueSpecificationOptions([...(group.options || []), ...customOptions]);
+  useEffect(() => { const saved = JSON.parse(localStorage.getItem('pos_custom_spec_options') || '{}'); const clean = uniqueSpecificationOptions(saved[group.key] || []); if (clean.length !== (saved[group.key] || []).length) { localStorage.setItem('pos_custom_spec_options', JSON.stringify({ ...saved, [group.key]: clean })); setStoredOptions(clean); } }, [group.key]);
   const [newOption, setNewOption] = useState('');
   const selected = group.mode === 'single' ? (value || '') : (value || []);
   const fieldValues = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   function toggle(option) { if (group.mode === 'single') return onChange(option); onChange(selected.includes(option) ? selected.filter((item) => item !== option) : [...selected, option]); }
-  function addOption() { const option = newOption.trim(); if (!option || options.includes(option)) return; const next = [...customOptions, option]; setStoredOptions(next); const saved = JSON.parse(localStorage.getItem('pos_custom_spec_options') || '{}'); localStorage.setItem('pos_custom_spec_options', JSON.stringify({ ...saved, [group.key]: next })); toggle(option); setNewOption(''); }
+  function addOption() { const option = newOption.trim(); if (!option || options.some((item) => String(item).trim().toLowerCase() === option.toLowerCase())) return; const next = uniqueSpecificationOptions([...customOptions, option]); setStoredOptions(next); const saved = JSON.parse(localStorage.getItem('pos_custom_spec_options') || '{}'); localStorage.setItem('pos_custom_spec_options', JSON.stringify({ ...saved, [group.key]: next })); toggle(option); setNewOption(''); }
   return <section className="specification-group"><h3><span className="specification-icon">+</span>{group.label}</h3>{group.fields ? <div className="specification-fields">{group.fields.map((field) => <label key={field.key}><span>{field.label}</span><input type={field.type || 'text'} readOnly={field.readOnly} value={field.key === 'watt' ? (Number(fieldValues.voltage || 0) * Number(fieldValues.ampere || 0) || '') : (fieldValues[field.key] || '')} onChange={(event) => onChange({ ...fieldValues, [field.key]: event.target.value, ...(field.key === 'voltage' || field.key === 'ampere' ? { watt: String(Number(fieldValues.voltage || (field.key === 'voltage' ? event.target.value : 0)) * Number(fieldValues.ampere || (field.key === 'ampere' ? event.target.value : 0)) || '') } : {}) })} /></label>)}</div> : <><div className="specification-options">{group.mode === 'single' ? <select value={selected} onChange={(event) => onChange(event.target.value)}><option value="">Pilih {group.label.toLowerCase()}...</option>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : options.map((option) => <label key={option}><input type="checkbox" checked={selected.includes(option)} onChange={() => toggle(option)} />{option}</label>)}</div><div className="add-spec-option"><input value={newOption} onChange={(event) => setNewOption(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addOption(); } }} placeholder="Tambah pilihan baru..." /><button type="button" onClick={addOption}>+</button></div></>}{group.note && <textarea className="specification-note" value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder={`Keterangan ${group.label.toLowerCase()}...`} rows="2" />}</section>;
 }
 

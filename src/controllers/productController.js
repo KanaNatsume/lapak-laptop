@@ -143,15 +143,26 @@ export async function importProducts(request, response) {
     serials.add(product.serialNumber);
   }
   if (errors.length) return response.status(400).json({ error: 'Import dibatalkan karena ada data tidak valid', errors });
+  const skipped = [];
+  const fingerprint = (product) => { const { line, ...content } = product; return JSON.stringify(content); };
+  const productsToInsert = products.filter((product, index) => {
+    const duplicateInFile = products.slice(0, index).some((previous) => fingerprint(previous) === fingerprint(product));
+    const duplicateInDatabase = db.prepare('SELECT id FROM products WHERE category = ? AND name = ? AND brand = ? AND COALESCE(serial_number, \'\') = COALESCE(?, \'\') AND cost_price = ? AND selling_price = ? AND stock = ? AND notes = ? AND specs = ?').get(product.category, product.name, product.brand, product.serialNumber, product.costPrice, product.sellingPrice, product.stock, product.notes, JSON.stringify(product.specs));
+    if (duplicateInFile || duplicateInDatabase) { skipped.push(product.line); return false; }
+    return true;
+  });
+  if (!productsToInsert.length) return response.status(200).json({ imported: 0, skipped: skipped.length, products: [], message: 'Semua baris sudah ada di inventori' });
+  const insertedIds = [];
   try {
     const insert = db.transaction(() => {
-      const statement = db.prepare('INSERT INTO products (category, name, brand, specs, serial_number, cost_price, selling_price, stock, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      for (const product of products) statement.run(product.category, product.name, product.brand, JSON.stringify(product.specs), product.serialNumber, product.costPrice, product.sellingPrice, product.stock, product.notes);
+      const statement = db.prepare('INSERT INTO products (category, name, brand, specs, serial_number, grade_condition, cost_price, selling_price, stock, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      for (const product of productsToInsert) insertedIds.push(Number(statement.run(product.category, product.name, product.brand, JSON.stringify(product.specs), product.serialNumber, 'B', product.costPrice, product.sellingPrice, product.stock, product.notes).lastInsertRowid));
     });
     insert();
   } catch (error) {
     if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return response.status(409).json({ error: 'Import dibatalkan: ada serial number yang sudah terdaftar' });
     throw error;
   }
-  response.status(201).json({ imported: products.length, products: db.prepare(`SELECT * FROM products WHERE id > (SELECT COALESCE(MAX(id), 0) - ? FROM products) ORDER BY id DESC LIMIT ?`).all(products.length, products.length).map(parseProduct) });
+  const placeholders = insertedIds.map(() => '?').join(',');
+  response.status(201).json({ imported: insertedIds.length, skipped: skipped.length, products: db.prepare(`SELECT * FROM products WHERE id IN (${placeholders}) ORDER BY id DESC`).all(...insertedIds).map(parseProduct) });
 }

@@ -2,8 +2,8 @@ export const api = async (path, options = {}) => {
   const token = localStorage.getItem('pos_token');
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const response = await fetch(`/api${path}`, {
-    headers: { ...(!isFormData ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) },
-    ...options
+    ...options,
+    headers: { ...(!isFormData ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) }
   });
   const body = response.status === 204 ? null : await response.json();
   if (response.status === 401) {
@@ -26,7 +26,7 @@ export const getReceipt = (id) => api(`/transactions/${id}/receipt`);
 export const payTransaction = (id, amount) => api(`/transactions/${id}/payment`, { method: 'POST', body: JSON.stringify({ amount }) });
 export const createProduct = (payload) => api('/products', { method: 'POST', body: JSON.stringify(payload) });
 export const updateProduct = (id, payload) => api(`/products/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-export const importProducts = (file) => api('/products/import', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form; })(), headers: {} });
+export const importProducts = (file) => api('/products/import', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form; })() });
 export const downloadProductImportTemplate = async () => {
   const response = await fetch('/api/products/import/template', { headers: { Authorization: `Bearer ${localStorage.getItem('pos_token') || ''}` } });
   if (!response.ok) throw new Error('Template Excel tidak dapat diunduh');
