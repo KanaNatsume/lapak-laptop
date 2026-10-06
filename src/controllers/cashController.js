@@ -15,8 +15,8 @@ export function listCashEntries(request, response) {
   const from = request.query.from || '1900-01-01';
   const to = request.query.to || '2999-12-31';
   const entries = db.prepare(`SELECT cash_entries.*, users.name AS created_by_name FROM cash_entries LEFT JOIN users ON users.id = cash_entries.created_by WHERE entry_date BETWEEN ? AND ? ORDER BY entry_date DESC, id DESC`).all(from, to);
-  const manual = db.prepare(`SELECT entry_type, COALESCE(SUM(amount), 0) AS total FROM cash_entries WHERE entry_date BETWEEN ? AND ? GROUP BY entry_type`).all(from, to);
-  const sales = db.prepare(`SELECT COALESCE(SUM(paid_amount), 0) AS total FROM transactions WHERE date(created_at) BETWEEN ? AND ?`).get(from, to);
+  const manual = db.prepare(`SELECT entry_type, COALESCE(SUM(amount), 0) AS total FROM cash_entries WHERE source = 'manual' AND entry_date BETWEEN ? AND ? GROUP BY entry_type`).all(from, to);
+  const sales = db.prepare(`SELECT COALESCE(SUM(paid_amount), 0) AS total FROM transactions WHERE transaction_stage = 'final' AND date(created_at) BETWEEN ? AND ?`).get(from, to);
   response.json({ entries, summary: { pemasukan_manual: manual.find((item) => item.entry_type === 'pemasukan')?.total || 0, pengeluaran: manual.find((item) => item.entry_type === 'pengeluaran')?.total || 0, penjualan: sales.total || 0 } });
 }
 

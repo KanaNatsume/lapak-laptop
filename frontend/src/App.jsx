@@ -67,7 +67,9 @@ function printReceipt(receipt) {
   if (!printWindow) return;
   const items = receipt.items || [];
   const paperWidth = receipt.paper_size_preference === 'A4' ? '794px' : receipt.paper_size_preference === '80mm' ? '302px' : '219px';
-  printWindow.document.write(`<html><head><title>${escapePrintText(receipt.invoice_number)}</title><style>body{font:12px monospace;width:${paperWidth};margin:20px auto;color:#111}h1{text-align:center;font-size:16px;margin:0 0 5px}.center{text-align:center}.line{border-top:1px dashed #111;margin:10px 0}.row{display:flex;justify-content:space-between;gap:10px;margin:5px 0}.item{margin:8px 0}.serial{font-size:10px;color:#555}strong{font-size:14px}@media print{body{margin:0;width:${paperWidth}}}</style></head><body><h1>${escapePrintText(receipt.store_name || 'LAPAK LAPTOP')}</h1><div class="center">${escapePrintText(receipt.store_address || '')}<br>${escapePrintText(receipt.store_phone || '')}</div><div class="line"></div><div>Invoice: ${escapePrintText(receipt.invoice_number)}</div><div>${escapePrintText(receipt.created_at || new Date().toLocaleString('id-ID'))}</div><div>Pelanggan: ${escapePrintText(receipt.customer_name || 'Umum')}</div><div class="line"></div>${items.map((item) => `<div class="item"><div>${escapePrintText(item.name)}</div>${item.serial_number ? `<div class="serial">SN: ${escapePrintText(item.serial_number)}</div>` : ''}<div class="row"><span>${item.qty} x ${formatPrice(item.price)}</span><span>${formatPrice(item.subtotal)}</span></div></div>`).join('')}<div class="line"></div><div class="row"><span>Subtotal</span><span>${formatPrice(receipt.subtotal)}</span></div><div class="row"><span>Diskon</span><span>-${formatPrice(receipt.direct_discount)}</span></div><div class="row"><span>Ongkir</span><span>${formatPrice(receipt.shipping_cost)}</span></div><div class="row"><strong>Total</strong><strong>${formatPrice(receipt.grand_total)}</strong></div><div class="row"><span>Bayar</span><span>${formatPrice(receipt.paid_amount)}</span></div><div class="row"><span>Kembali</span><span>${formatPrice(receipt.change_amount)}</span></div><div class="line"></div><div class="center">${escapePrintText(receipt.receipt_footer_text || '')}<br><br>${escapePrintText(receipt.receipt_closing_text || '')}</div></body></html>`);
+  const remainingAmount = Math.max(0, Number(receipt.grand_total || 0) - Number(receipt.paid_amount || 0));
+  const paymentRows = receipt.transaction_type === 'servis' ? `<div class="row"><span>Down Payment / DP</span><span>${formatPrice(receipt.paid_amount)}</span></div><div class="row"><span>Sisa pembayaran</span><span>${formatPrice(remainingAmount)}</span></div>` : `<div class="row"><span>Bayar</span><span>${formatPrice(receipt.paid_amount)}</span></div>`;
+  printWindow.document.write(`<html><head><title>${escapePrintText(receipt.invoice_number)}</title><style>body{font:12px monospace;width:${paperWidth};margin:20px auto;color:#111}h1{text-align:center;font-size:16px;margin:0 0 5px}.center{text-align:center}.line{border-top:1px dashed #111;margin:10px 0}.row{display:flex;justify-content:space-between;gap:10px;margin:5px 0}.item{margin:8px 0}.serial{font-size:10px;color:#555}strong{font-size:14px}@media print{body{margin:0;width:${paperWidth}}}</style></head><body><h1>${escapePrintText(receipt.store_name || 'LAPAK LAPTOP')}</h1><div class="center">${escapePrintText(receipt.store_address || '')}<br>${escapePrintText(receipt.store_phone || '')}</div><div class="line"></div><div>Invoice: ${escapePrintText(receipt.invoice_number)}</div><div>${escapePrintText(receipt.created_at || new Date().toLocaleString('id-ID'))}</div><div>Pelanggan: ${escapePrintText(receipt.customer_name || 'Umum')}</div><div class="line"></div>${items.map((item) => `<div class="item"><div>${escapePrintText(item.name)}</div>${item.serial_number ? `<div class="serial">SN: ${escapePrintText(item.serial_number)}</div>` : ''}<div class="row"><span>${item.qty} x ${formatPrice(item.price)}</span><span>${formatPrice(item.subtotal)}</span></div></div>`).join('')}<div class="line"></div><div class="row"><span>Subtotal</span><span>${formatPrice(receipt.subtotal)}</span></div><div class="row"><span>Diskon</span><span>-${formatPrice(receipt.direct_discount)}</span></div><div class="row"><span>Ongkir</span><span>${formatPrice(receipt.shipping_cost)}</span></div><div class="row"><strong>Total</strong><strong>${formatPrice(receipt.grand_total)}</strong></div>${paymentRows}<div class="row"><span>Kembali</span><span>${formatPrice(receipt.change_amount)}</span></div><div class="line"></div><div class="center">${escapePrintText(receipt.receipt_footer_text || '')}<br><br>${escapePrintText(receipt.receipt_closing_text || '')}</div></body></html>`);
   printWindow.document.close();
   printWindow.focus();
   printWindow.print();
@@ -223,7 +225,14 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   async function saveService(payload) {
     try {
       const saved = await createService(payload);
-      setServiceTickets((current) => [{ ...saved, serviceId: saved.id, customerId: saved.customer_id, id: saved.ticket_number, customer: customer?.name || 'Pelanggan', device: saved.device_name, issue: saved.issues, status: saved.status.replaceAll('_', ' ') }, ...current]); setModal(null); setToast(`Tiket ${saved.ticket_number} berhasil dibuat`);
+      const estimatedCost = Number(saved.estimated_cost || payload.estimated_cost || 0);
+      const downPayment = Number(saved.down_payment || payload.down_payment || 0);
+      const openingTotal = Math.max(estimatedCost, downPayment);
+      const openingPaymentStatus = downPayment <= 0 ? 'bayar_nanti' : downPayment >= openingTotal ? 'lunas' : 'dp';
+      const openingTransaction = await createTransaction({ customer_id: saved.customer_id, transaction_type: 'servis', transaction_stage: 'opening', paid_amount: downPayment, payment_method: 'cash', payment_status: openingPaymentStatus, record_cash: false, notes: 'Nota awal servis', items: [{ item_type: 'service', reference_id: saved.id, name: `Servis ${saved.device_name}`, price: openingTotal, qty: 1 }] });
+      const openingReceipt = await getReceipt(openingTransaction.id);
+      setReceipt(openingReceipt); printReceipt(openingReceipt);
+      setServiceTickets((current) => [{ ...saved, serviceId: saved.id, customerId: saved.customer_id, id: saved.ticket_number, customer: customer?.name || 'Pelanggan', device: saved.device_name, issue: saved.issues, status: saved.status.replaceAll('_', ' ') }, ...current]); setModal(null); setToast(`Tiket ${saved.ticket_number} berhasil dibuat dan nota awal dicetak`);
     } catch (error) { setToast(error.message); }
   }
 
@@ -237,7 +246,9 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
       setServiceTickets((current) => current.map((ticket) => ticket.serviceId === serviceId ? { ...ticket, status: updated.status.replaceAll('_', ' ') } : ticket));
       setToast(`Status tiket diubah ke ${next.replaceAll('_', ' ')}`);
       if (next === 'selesai' && ticket) {
-        const transaction = await createTransaction({ customer_id: ticket.customerId, transaction_type: 'servis', payment_status: 'bayar_nanti', payment_method: 'cash', items: [{ item_type: 'service', reference_id: serviceId, name: `Servis ${ticket.device}`, price: updated.final_cost, qty: 1 }] });
+        const downPayment = Number(ticket.down_payment || 0);
+        const paymentStatus = downPayment <= 0 ? 'bayar_nanti' : downPayment >= Number(updated.final_cost || 0) ? 'lunas' : 'dp';
+        const transaction = await createTransaction({ customer_id: ticket.customerId, transaction_type: 'servis', paid_amount: downPayment, payment_status: paymentStatus, payment_method: 'cash', items: [{ item_type: 'service', reference_id: serviceId, name: `Servis ${ticket.device}`, price: updated.final_cost, qty: 1 }] });
         const serviceReceipt = await getReceipt(transaction.id); setReceipt(serviceReceipt); printReceipt(serviceReceipt);
       }
     } catch (error) { setToast(error.message); }
@@ -262,9 +273,21 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   }
 
   async function settleTransaction(transaction) {
-    const amount = Number(window.prompt(`Sisa tagihan ${formatPrice(Math.max(0, transaction.grand_total - transaction.paid_amount))}:`));
-    if (!amount) return;
-    try { const updated = await payTransaction(transaction.id, amount); setTransactions((current) => current.map((item) => item.id === updated.id ? updated : item)); setReceipt(await getReceipt(updated.id)); setToast(`Pembayaran ${updated.payment_status}`); } catch (error) { setToast(error.message); }
+    const remaining = Math.max(0, Number(transaction.grand_total || 0) - Number(transaction.paid_amount || 0));
+    if (!remaining) return setToast('Transaksi ini tidak memiliki sisa tagihan');
+    const amount = Number(window.prompt(`Sisa tagihan ${formatPrice(remaining)}:`));
+    if (!amount || amount <= 0) return;
+    try { 
+      console.log('Settling transaction:', { id: transaction.id, invoice: transaction.invoice_number, remaining, amount, stage: transaction.transaction_stage });
+      const updated = await payTransaction(transaction.id, amount); 
+      console.log('Payment result:', updated); 
+      setTransactions((current) => current.map((item) => item.id === updated.id ? updated : item)); 
+      setReceipt(await getReceipt(updated.id)); 
+      setToast(`Pembayaran ${updated.payment_status}`); 
+    } catch (error) { 
+      console.error('Settlement error:', error);
+      setToast(error.message || 'Gagal melunasi'); 
+    }
   }
 
   return (
@@ -277,7 +300,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
         <div className="store-status"><span className="pulse-dot" /> Toko buka <span className="status-time">{storeSettings.opening_time}–{storeSettings.closing_time}</span></div>
         <nav className="primary-nav" aria-label="Navigasi utama">
           <p className="nav-label">Workspace</p>
-          {can('admin', 'kasir') && <NavButton icon={<ShoppingCart size={18} />} label="Kasir" active={activePage === 'kasir'} onClick={() => setActivePage('kasir')} badge="3" />}
+          {can('admin', 'kasir') && <NavButton icon={<ShoppingCart size={18} />} label="Kasir" active={activePage === 'kasir'} onClick={() => setActivePage('kasir')} />}
           {can('admin', 'kasir', 'teknisi') && <NavButton icon={<Wrench size={18} />} label="Servis" active={activePage === 'servis'} onClick={() => setActivePage('servis')} badge={activeServiceTickets.length ? String(activeServiceTickets.length) : undefined} />}
           {can('admin', 'kasir') && <NavButton icon={<ClipboardList size={18} />} label="Riwayat transaksi" active={activePage === 'riwayat'} onClick={() => setActivePage('riwayat')} />}
           <p className="nav-label secondary-label">Kelola</p>
@@ -496,7 +519,7 @@ function SerialScanner({ onDetected }) {
 function SectionHeading({ eyebrow, title, description, action, onAction }) { return <section className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> {eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action && <button className="button primary" onClick={onAction}><Plus size={17} /> {action}</button>}</section>; }
 
 function TransactionHistory({ transactions, onPrint, onSettle }) {
-  return <><SectionHeading eyebrow="CATATAN PENJUALAN" title={<>Semua transaksi, <em>tersimpan.</em></>} description="Lihat invoice, cetak ulang nota, atau terima pelunasan." /><section className="panel table-panel"><div className="panel-header"><div><h2>Riwayat transaksi</h2><p>{transactions.length} transaksi terbaru</p></div><div className="search-field"><Search size={15} /><input placeholder="Cari invoice..." /></div></div><div className="history-list">{transactions.length ? transactions.map((transaction) => <div className="history-row" key={transaction.id}><div><strong>{transaction.invoice_number}</strong><small>{transaction.created_at}</small></div><span>{transaction.transaction_type} · {transaction.payment_status}</span><strong>{formatPrice(transaction.grand_total)}</strong><div className="history-actions">{transaction.payment_status !== 'lunas' && <button className="settle-button" onClick={() => onSettle(transaction)}>Pelunasan</button>}<button className="icon-button bordered" onClick={() => onPrint(transaction)} aria-label={`Cetak ${transaction.invoice_number}`}><Printer size={16} /></button></div></div>) : <div className="empty-state"><ClipboardList size={30} /><strong>Belum ada transaksi</strong><span>Transaksi yang selesai akan muncul di sini.</span></div>}</div></section></>;
+  return <><SectionHeading eyebrow="CATATAN PENJUALAN" title={<>Semua transaksi, <em>tersimpan.</em></>} description="Lihat invoice, cetak ulang nota, atau terima pelunasan." /><section className="panel table-panel"><div className="panel-header"><div><h2>Riwayat transaksi</h2><p>{transactions.length} transaksi terbaru</p></div><div className="search-field"><Search size={15} /><input placeholder="Cari invoice..." /></div></div><div className="history-list">{transactions.length ? transactions.map((transaction) => <div className="history-row" key={transaction.id}><div><strong>{transaction.invoice_number}</strong><small>{transaction.created_at}</small></div><span>{transaction.transaction_type} · {transaction.payment_status}</span><strong>{formatPrice(transaction.grand_total)}</strong><div className="history-actions">{transaction.payment_status !== 'lunas' && Number(transaction.grand_total || 0) > Number(transaction.paid_amount || 0) && <button type="button" className="settle-button" onClick={() => onSettle(transaction)}>Pelunasan</button>}<button type="button" className="icon-button bordered" onClick={() => onPrint(transaction)} aria-label={`Cetak ${transaction.invoice_number}`}><Printer size={16} /></button></div></div>) : <div className="empty-state"><ClipboardList size={30} /><strong>Belum ada transaksi</strong><span>Transaksi yang selesai akan muncul di sini.</span></div>}</div></section></>;
 }
 
 function InventoryView({ products, openProductModal, onEditProduct, onImportProducts, onDownloadTemplate }) {

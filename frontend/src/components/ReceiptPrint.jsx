@@ -6,6 +6,7 @@ const formatMoney = (value) => money.format(Number(value || 0)).replace('Rp', 'R
 
 export default function ReceiptPrint({ receipt, onPrint }) {
   const size = receipt?.paper_size_preference || '58mm';
+  const remainingAmount = Math.max(0, Number(receipt?.grand_total || 0) - Number(receipt?.paid_amount || 0));
   return <article className={`receipt-sheet receipt-${size.replace('mm', 'mm').toLowerCase()} ${size === 'A4' ? 'receipt-a4' : ''}`}>
     <div className="receipt-actions print:hidden"><button type="button" onClick={onPrint} className="flex items-center gap-2 rounded-md bg-[#15221e] px-4 py-2 text-xs font-bold text-white hover:bg-[#28463a]"><Printer size={15} /> Cetak</button></div>
     <header className="receipt-header"><h1>{receipt?.store_name || 'Lapak Laptop'}</h1><p>{receipt?.store_address}</p><p>{receipt?.store_phone}</p></header>
@@ -14,7 +15,7 @@ export default function ReceiptPrint({ receipt, onPrint }) {
     <div className="receipt-rule" />
     <section className="receipt-items">{(receipt?.items || []).map((item) => <div className="receipt-item" key={item.id}><div className="receipt-item-main"><strong>{item.name}</strong><span>{item.qty} x {formatMoney(item.price)}</span></div>{item.serial_number && <div className="receipt-serial">SN: {item.serial_number}</div>}<strong>{formatMoney(item.subtotal)}</strong></div>)}</section>
     <div className="receipt-rule" />
-    <section className="receipt-totals"><div><span>Subtotal</span><strong>{formatMoney(receipt?.subtotal)}</strong></div><div><span>Diskon (Nego)</span><strong>- {formatMoney(receipt?.direct_discount)}</strong></div><div><span>Ongkir</span><strong>{formatMoney(receipt?.shipping_cost)}</strong></div><div className="receipt-grand"><span>Grand Total</span><strong>{formatMoney(receipt?.grand_total)}</strong></div><div><span>Nominal Bayar</span><strong>{formatMoney(receipt?.paid_amount)}</strong></div><div><span>Kembalian</span><strong>{formatMoney(receipt?.change_amount)}</strong></div></section>
+    <section className="receipt-totals"><div><span>Subtotal</span><strong>{formatMoney(receipt?.subtotal)}</strong></div><div><span>Diskon (Nego)</span><strong>- {formatMoney(receipt?.direct_discount)}</strong></div><div><span>Ongkir</span><strong>{formatMoney(receipt?.shipping_cost)}</strong></div><div className="receipt-grand"><span>Grand Total</span><strong>{formatMoney(receipt?.grand_total)}</strong></div>{receipt?.transaction_type === 'servis' ? <><div><span>Down Payment / DP</span><strong>{formatMoney(receipt?.paid_amount)}</strong></div><div><span>Sisa Pembayaran</span><strong>{formatMoney(remainingAmount)}</strong></div></> : <div><span>Nominal Bayar</span><strong>{formatMoney(receipt?.paid_amount)}</strong></div>}<div><span>Kembalian</span><strong>{formatMoney(receipt?.change_amount)}</strong></div></section>
     <footer className="receipt-footer"><p>{receipt?.receipt_footer_text}</p><strong>{receipt?.receipt_closing_text}</strong></footer>
   </article>;
 }
