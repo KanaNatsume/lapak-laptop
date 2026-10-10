@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
+import QRCode from 'qrcode';
 import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServices, getSettings, getTransactions, importProducts, login, logout, payTransaction, updateProduct, updateServiceStatus } from './api/client.js';
 import ReceiptPrint from './components/ReceiptPrint.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
 import UserManagementPage from './components/UserManagementPage.jsx';
 import CashLedgerPage from './components/CashLedgerPage.jsx';
+import ProductCodeCamera from './components/ProductCodeCamera.jsx';
 import './components/serial-scanner.css';
 import './components/product-import.css';
 import {
@@ -14,6 +16,7 @@ import {
   ChevronDown,
   CircleDollarSign,
   ClipboardList,
+  QrCode,
   Laptop,
   FileSpreadsheet,
   Download,
@@ -74,6 +77,20 @@ function printReceipt(receipt) {
   printWindow.document.close();
   printWindow.focus();
   printWindow.print();
+}
+
+async function printProductLabel(product) {
+  const printWindow = window.open('', '_blank', 'width=420,height=320');
+  if (!printWindow) return;
+  try {
+    const code = `POS:${product.id}`;
+    const qr = await QRCode.toDataURL(code, { width: 240, margin: 1, errorCorrectionLevel: 'M' });
+    printWindow.document.write(`<html><head><title>Label ${escapePrintText(product.name)}</title><style>@page{size:50mm 30mm;margin:0}*{box-sizing:border-box}body{width:50mm;height:30mm;margin:0;padding:2mm;font:7pt Arial,sans-serif;display:flex;align-items:center;gap:2mm;color:#111}.qr{width:24mm;height:24mm}.info{min-width:0;flex:1}.name{font-size:8pt;font-weight:bold;max-height:10mm;overflow:hidden}.brand{margin-top:1mm;color:#444}.price{margin-top:2mm;font-size:9pt;font-weight:bold}.code{margin-top:1mm;font-size:6pt}</style></head><body><img class="qr" src="${qr}"/><div class="info"><div class="name">${escapePrintText(product.name)}</div><div class="brand">${escapePrintText(product.brand || '')}</div><div class="price">${formatPrice(product.selling_price ?? product.price)}</div><div class="code">${escapePrintText(code)}</div></div><script>window.onload=()=>window.print()</script></body></html>`);
+    printWindow.document.close();
+  } catch (error) {
+    printWindow.close();
+    throw error;
+  }
 }
 
 function App() {
@@ -151,6 +168,15 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
       setCart(cart.map((item) => item.id === product.id ? { ...item, qty: item.qty + 1 } : item));
     } else setCart([...cart, { ...product, qty: 1 }]);
     setToast(`${product.name} ditambahkan`);
+  }
+
+  function addScannedProduct(rawCode) {
+    const code = String(rawCode || '').trim();
+    const productId = code.match(/^POS:(\d+)$/i)?.[1];
+    const product = products.find((item) => productId ? String(item.id) === productId : String(item.serial || '').toLowerCase() === code.toLowerCase());
+    if (!product) return setToast(`Produk dengan kode ${code} tidak ditemukan`);
+    if (product.stock < 1) return setToast(`${product.name} sedang habis`);
+    addToCart(product);
   }
 
   function removeFromCart(id) {
@@ -321,10 +347,10 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
           <div className="topbar-actions"><div className="notification-wrap"><button className="icon-button" aria-label="Notifikasi" onClick={() => setShowNotifications(!showNotifications)}><Bell size={19} />{notifications.length > 0 && <i />}</button>{showNotifications && <NotificationPanel notifications={notifications} onClose={() => setShowNotifications(false)} />}</div><div className="date-chip">{new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date())}</div></div>
         </header>
         {activePage === 'kasir' && can('admin', 'kasir') ? (
-          <CashierView {...{ cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount: todayTransactions.length, todaySalesTotal, activeServiceCount: activeServiceTickets.length, approvalServiceCount: approvalServiceTickets.length, openProductModal: () => { setEditingProduct(null); setModal('product'); }, openCustomerModal: () => setModal('customer') }} />
+          <CashierView {...{ cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, addScannedProduct, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount: todayTransactions.length, todaySalesTotal, activeServiceCount: activeServiceTickets.length, approvalServiceCount: approvalServiceTickets.length, openProductModal: () => { setEditingProduct(null); setModal('product'); }, openCustomerModal: () => setModal('customer') }} />
         ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
             : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} />
-            : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
+            : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onPrintLabel={can('admin', 'kasir') ? printProductLabel : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
               : activePage === 'pelanggan' ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} />
                 : activePage === 'kas' && can('admin', 'kasir') ? <CashLedgerPage onToast={setToast} />
                 : activePage === 'users' && can('admin') ? <UserManagementPage currentUser={authUser} onCurrentUserUpdated={(user) => { localStorage.setItem('pos_user', JSON.stringify(user)); onAuthUserUpdated(user); }} onToast={setToast} />
@@ -347,7 +373,11 @@ function NavButton({ icon, label, active, onClick, badge }) {
 }
 
 function CashierView(props) {
-  const { cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount, todaySalesTotal, activeServiceCount, approvalServiceCount, openProductModal, openCustomerModal } = props;
+  const { cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, addScannedProduct, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount, todaySalesTotal, activeServiceCount, approvalServiceCount, openProductModal, openCustomerModal } = props;
+  const [scanCode, setScanCode] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
+  function submitScan(event) { event.preventDefault(); const code = scanCode.trim(); if (!code) return; addScannedProduct(code); setScanCode(''); }
+  function detectedCode(code) { addScannedProduct(code); setCameraOpen(false); }
   return <>
     <section className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> TRANSAKSI BARU</div><h1>Mulai penjualan <em>hari ini.</em></h1><p>Tambahkan barang ke keranjang, pilih pelanggan, lalu selesaikan pembayaran.</p></div><div className="heading-actions"><button className="button ghost" onClick={() => window.print()}><Printer size={16} /> Cetak laporan</button><button className="button primary" onClick={openProductModal}><Plus size={17} /> Produk baru</button></div></section>
     <div className="stats-row"><StatCard label="Transaksi hari ini" value={todayTransactionCount} detail="Transaksi tercatat" icon={<CircleDollarSign size={19} />} accent="green" /><StatCard label="Nilai penjualan" value={formatPrice(todaySalesTotal)} detail="Total transaksi hari ini" icon={<ArrowUpRight size={19} />} accent="yellow" /><StatCard label="Servis aktif" value={activeServiceCount} detail={`${approvalServiceCount} perlu persetujuan`} icon={<Wrench size={19} />} accent="coral" /></div>
@@ -355,6 +385,8 @@ function CashierView(props) {
       <section className="catalog-panel panel">
         <div className="panel-header"><div><h2>Pilih barang</h2><p>{filteredProducts.length} barang tersedia untuk dijual</p></div><div className="filter-pill"><span className="filter-dot" /> {category || 'Semua kategori'} <ChevronDown size={14} /></div></div>
         <div className="search-field large"><Search size={18} /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Cari nama, brand, atau serial number..." /><kbd>⌘ K</kbd></div>
+        <form className="cashier-scan-row" onSubmit={submitScan}><ScanLine size={17} /><input autoComplete="off" value={scanCode} onChange={(event) => setScanCode(event.target.value)} placeholder="Scan QR/barcode atau serial number" /><button type="button" className="button ghost" onClick={() => setCameraOpen((open) => !open)}><Camera size={15} /> Kamera</button><button type="submit" className="button primary">Pilih</button></form>
+        {cameraOpen && <ProductCodeCamera onDetected={detectedCode} onClose={() => setCameraOpen(false)} />}
         <div className="category-tabs"><button className={!category ? 'selected' : ''} onClick={() => setCategory('')}>Semua <span>{filteredProducts.length}</span></button><button className={category === 'Laptop' ? 'selected' : ''} onClick={() => setCategory('Laptop')}>Laptop</button><button className={category === 'Aksesoris' ? 'selected' : ''} onClick={() => setCategory('Aksesoris')}>Aksesoris</button><button className={category === 'Part copotan' ? 'selected' : ''} onClick={() => setCategory('Part copotan')}>Part copotan</button><button className={category === 'Gadget' ? 'selected' : ''} onClick={() => setCategory('Gadget')}>Gadget</button></div>
         <div className="product-list">{loading ? <div className="empty-cart">Memuat inventori...</div> : filteredProducts.map((product) => <ProductRow key={product.id} product={product} onAdd={() => addToCart(product)} />)}</div>
       </section>
@@ -695,6 +727,7 @@ function InventoryView({
   products,
   openProductModal,
   onEditProduct,
+  onPrintLabel,
   onImportProducts,
   onDownloadTemplate,
 }) {
@@ -723,7 +756,7 @@ function InventoryView({
         onAction={openProductModal}
       />
       <section className="panel table-panel">
-        <div className="panel-header">
+        <div className="panel-header inventory-header">
           <div>
             <h2>Daftar inventori</h2>
             <p>
@@ -794,7 +827,7 @@ function InventoryView({
         <div className="history-list">
           {filteredProducts.length ? (
             filteredProducts.map((product) => (
-              <div className="history-row" key={product.id}>
+              <div className="history-row inventory-row" key={product.id}>
                 <div>
                   <strong>{product.name}</strong>
                   <small>
@@ -803,6 +836,16 @@ function InventoryView({
                 </div>
                 <strong>{formatPrice(product.price)}</strong>
                 <span className="stock-label">{product.stock} stok</span>
+                {onPrintLabel && (
+                  <button
+                    className="icon-button bordered"
+                    onClick={() => onPrintLabel(product)}
+                    aria-label={`Cetak label barcode ${product.name}`}
+                    title="Cetak label QR"
+                  >
+                    <QrCode size={15} />
+                  </button>
+                )}
                 {onEditProduct ? (
                   <button
                     className="icon-button bordered"
