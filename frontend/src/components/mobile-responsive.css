@@ -1,4 +1,57 @@
+.history-row.inventory-row {
+  grid-template-columns: minmax(0, 1fr) minmax(120px, auto) 62px 36px 36px;
+  gap: 9px;
+}
+
+.history-row.inventory-row > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.history-row.inventory-row .icon-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-self: center;
+}
+
+.history-row:not(.inventory-row) {
+  grid-template-columns: minmax(0, 1.3fr) minmax(105px, 1fr) minmax(90px, .8fr) minmax(122px, auto);
+}
+
+.history-actions {
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.history-actions .settle-button {
+  min-height: 32px;
+  padding: 6px 9px;
+}
+
 @media (max-width: 720px) {
+  .history-row:not(.inventory-row) {
+    grid-template-columns: minmax(0, 1fr) minmax(108px, auto);
+  }
+
+  .history-row:not(.inventory-row) .history-actions {
+    grid-column: 2;
+    grid-row: 2;
+    flex-wrap: nowrap;
+  }
+
+  .history-row:not(.inventory-row) .history-actions .settle-button {
+    min-height: 40px;
+  }
+
+  .history-row.inventory-row {
+    grid-template-columns: minmax(0, 1fr) auto auto 40px 40px;
+  }
+
   .app-shell {
     padding-bottom: calc(66px + env(safe-area-inset-bottom));
   }
