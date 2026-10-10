@@ -294,6 +294,45 @@
     min-width: 0;
   }
 
+  .customer-popover {
+    position: fixed;
+    z-index: 45;
+    top: max(74px, 10vh);
+    bottom: auto;
+    left: 72px;
+    right: 12px;
+    display: flex;
+    max-height: min(68vh, 520px);
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px;
+  }
+
+  .customer-popover > .search-field {
+    position: sticky;
+    top: -8px;
+    z-index: 2;
+    flex: 0 0 auto;
+    min-height: 40px;
+    background: white;
+  }
+
+  .customer-option {
+    flex: 0 0 auto;
+    min-height: 46px;
+    border-bottom: 1px solid #f0f2ef;
+  }
+
+  .new-customer {
+    position: sticky;
+    bottom: -8px;
+    z-index: 2;
+    flex: 0 0 auto;
+    min-height: 42px;
+    background: white;
+  }
+
   .service-panel {
     overflow: visible;
   }

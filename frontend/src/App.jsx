@@ -386,6 +386,11 @@ function CashierView(props) {
   const { cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, addScannedProduct, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount, todaySalesTotal, activeServiceCount, approvalServiceCount, openProductModal, openCustomerModal } = props;
   const [scanCode, setScanCode] = useState('');
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [productPage, setProductPage] = useState(1);
+  const [productPageSize, setProductPageSize] = useState(8);
+  const productPageCount = Math.max(1, Math.ceil(filteredProducts.length / productPageSize));
+  const currentProductPage = Math.min(productPage, productPageCount);
+  const visibleProducts = filteredProducts.slice((currentProductPage - 1) * productPageSize, currentProductPage * productPageSize);
   function submitScan(event) { event.preventDefault(); const code = scanCode.trim(); if (!code) return; addScannedProduct(code); setScanCode(''); }
   function detectedCode(code) { addScannedProduct(code); setCameraOpen(false); }
   return <>
@@ -394,11 +399,12 @@ function CashierView(props) {
     <div className="workspace-grid">
       <section className="catalog-panel panel">
         <div className="panel-header"><div><h2>Pilih barang</h2><p>{filteredProducts.length} barang tersedia untuk dijual</p></div><div className="filter-pill"><span className="filter-dot" /> {category || 'Semua kategori'} <ChevronDown size={14} /></div></div>
-        <div className="search-field large"><Search size={18} /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Cari nama, brand, atau serial number..." /><kbd>⌘ K</kbd></div>
+        <div className="search-field large"><Search size={18} /><input value={searchTerm} onChange={(event) => { setSearchTerm(event.target.value); setProductPage(1); }} placeholder="Cari nama, brand, atau serial number..." /><kbd>⌘ K</kbd></div>
         <form className="cashier-scan-row" onSubmit={submitScan}><ScanLine size={17} /><input autoComplete="off" value={scanCode} onChange={(event) => setScanCode(event.target.value)} placeholder="Scan QR/barcode atau serial number" /><button type="button" className="button ghost" onClick={() => setCameraOpen((open) => !open)}><Camera size={15} /> Kamera</button><button type="submit" className="button primary">Pilih</button></form>
         {cameraOpen && <ProductCodeCamera onDetected={detectedCode} onClose={() => setCameraOpen(false)} />}
-        <div className="category-tabs"><button className={!category ? 'selected' : ''} onClick={() => setCategory('')}>Semua <span>{filteredProducts.length}</span></button><button className={category === 'Laptop' ? 'selected' : ''} onClick={() => setCategory('Laptop')}>Laptop</button><button className={category === 'Aksesoris' ? 'selected' : ''} onClick={() => setCategory('Aksesoris')}>Aksesoris</button><button className={category === 'Part copotan' ? 'selected' : ''} onClick={() => setCategory('Part copotan')}>Part copotan</button><button className={category === 'Gadget' ? 'selected' : ''} onClick={() => setCategory('Gadget')}>Gadget</button></div>
-        <div className="product-list">{loading ? <div className="empty-cart">Memuat inventori...</div> : filteredProducts.map((product) => <ProductRow key={product.id} product={product} onAdd={() => addToCart(product)} />)}</div>
+        <div className="category-tabs"><button className={!category ? 'selected' : ''} onClick={() => { setCategory(''); setProductPage(1); }}>Semua <span>{filteredProducts.length}</span></button><button className={category === 'Laptop' ? 'selected' : ''} onClick={() => { setCategory('Laptop'); setProductPage(1); }}>Laptop</button><button className={category === 'Aksesoris' ? 'selected' : ''} onClick={() => { setCategory('Aksesoris'); setProductPage(1); }}>Aksesoris</button><button className={category === 'Part copotan' ? 'selected' : ''} onClick={() => { setCategory('Part copotan'); setProductPage(1); }}>Part copotan</button><button className={category === 'Gadget' ? 'selected' : ''} onClick={() => { setCategory('Gadget'); setProductPage(1); }}>Gadget</button></div>
+        <div className="product-list">{loading ? <div className="empty-cart">Memuat inventori...</div> : visibleProducts.map((product) => <ProductRow key={product.id} product={product} onAdd={() => addToCart(product)} />)}</div>
+        {!loading && filteredProducts.length > 0 && <div className="inventory-pagination cashier-pagination"><label className="inventory-page-size">Tampilkan<select aria-label="Barang per halaman" value={productPageSize} onChange={(event) => { setProductPageSize(Number(event.target.value)); setProductPage(1); }}><option value="8">8</option><option value="16">16</option><option value="32">32</option></select></label><span className="inventory-page-status">Halaman {currentProductPage} dari {productPageCount}</span><div className="inventory-page-buttons"><button type="button" className="icon-button bordered" aria-label="Halaman barang sebelumnya" disabled={currentProductPage <= 1} onClick={() => setProductPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /></button><button type="button" className="icon-button bordered" aria-label="Halaman barang berikutnya" disabled={currentProductPage >= productPageCount} onClick={() => setProductPage((value) => Math.min(productPageCount, value + 1))}><ChevronRight size={16} /></button></div></div>}
       </section>
       <section className="checkout-panel panel">
         <div className="panel-header checkout-title"><div><h2>Keranjang <span className="count-badge">{cart.length}</span></h2><p>INV-240918-018 · Draft</p></div><button className="text-button" onClick={() => cart.forEach((item) => removeFromCart(item.id))}>Kosongkan</button></div>
@@ -909,6 +915,15 @@ function InventoryView({
 }
 
 function CustomerView({ customers, openCustomerModal, onImportCustomers }) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const filteredCustomers = customers.filter((customer) => `${customer.name} ${customer.phone} ${customer.address || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const pageCount = Math.max(1, Math.ceil(filteredCustomers.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageCustomers = filteredCustomers.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const firstCustomer = filteredCustomers.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const lastCustomer = Math.min(currentPage * pageSize, filteredCustomers.length);
   return (
     <>
       <SectionHeading
@@ -926,13 +941,16 @@ function CustomerView({ customers, openCustomerModal, onImportCustomers }) {
         <div className="panel-header">
           <div>
             <h2>Daftar pelanggan</h2>
-            <p>{customers.length} kontak tersimpan</p>
+            <p>{filteredCustomers.length} pelanggan · Menampilkan {firstCustomer}–{lastCustomer}</p>
           </div>
-          {onImportCustomers && <div className="customer-import-actions"><label className="button ghost" htmlFor="aronium-customer-import"><FileSpreadsheet size={15} /> Import Aronium CSV</label><input id="aronium-customer-import" hidden type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportCustomers(file); event.target.value = ''; }} /></div>}
+          <div className="customer-list-actions">
+            <div className="search-field customer-list-search"><Search size={15} /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Cari nama, telepon, atau alamat..." /></div>
+            {onImportCustomers && <div className="customer-import-actions"><label className="button ghost" htmlFor="aronium-customer-import"><FileSpreadsheet size={15} /> Import Aronium CSV</label><input id="aronium-customer-import" hidden type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportCustomers(file); event.target.value = ''; }} /></div>}
+          </div>
         </div>
         <div className="history-list">
-          {customers.length ? (
-            customers.map((item) => (
+          {pageCustomers.length ? (
+            pageCustomers.map((item) => (
               <div className="history-row" key={item.id}>
                 <div className="customer-table-name">
                   <div className="avatar small">
@@ -955,10 +973,25 @@ function CustomerView({ customers, openCustomerModal, onImportCustomers }) {
             <div className="empty-state">
               <UsersRound size={30} />
               <strong>Belum ada pelanggan</strong>
-              <span>Tambahkan pelanggan baru untuk mulai.</span>
+              <span>{search ? "Coba kata pencarian lain." : "Tambahkan pelanggan baru untuk mulai."}</span>
             </div>
           )}
         </div>
+        {filteredCustomers.length > 0 && <div className="inventory-pagination customer-pagination">
+          <label className="inventory-page-size">Tampilkan
+            <select aria-label="Jumlah pelanggan per halaman" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+            </select>
+            per halaman
+          </label>
+          <span className="inventory-page-status">Halaman {currentPage} dari {pageCount}</span>
+          <div className="inventory-page-buttons">
+            <button type="button" className="icon-button bordered" aria-label="Pelanggan sebelumnya" title="Sebelumnya" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /></button>
+            <button type="button" className="icon-button bordered" aria-label="Pelanggan berikutnya" title="Berikutnya" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={16} /></button>
+          </div>
+        </div>}
       </section>
     </>
   );

@@ -38,7 +38,7 @@ function flagIsFalse(value) { return ['0', 'false', 'no', 'tidak'].includes(Stri
 
 export function listCustomers(request, response) {
   const search = `%${request.query.search || ''}%`;
-  response.json(db.prepare('SELECT * FROM customers WHERE name LIKE ? OR phone LIKE ? ORDER BY name LIMIT 50').all(search, search));
+  response.json(db.prepare('SELECT * FROM customers WHERE name LIKE ? OR phone LIKE ? OR address LIKE ? ORDER BY name').all(search, search, search));
 }
 
 export function createCustomer(request, response) {
