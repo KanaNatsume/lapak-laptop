@@ -162,7 +162,7 @@ export default function CashLedgerPage({ onToast }) {
         <div className="cash-toolbar">
           <div>
             <strong>Periode laporan</strong>
-            <span>{data.entries.length} catatan manual</span>
+            <span>{data.entries.length} catatan kas</span>
           </div>
           <div className="date-range">
             <label>
@@ -202,7 +202,7 @@ export default function CashLedgerPage({ onToast }) {
             <ArrowDownLeft size={18} />
             <span>Total pengeluaran</span>
             <strong>{money.format(data.summary.pengeluaran)}</strong>
-            <small>Catatan biaya operasional</small>
+            <small>Termasuk refund dan biaya manual</small>
           </div>
           <div className="cash-summary-card balance">
             <CircleDollarSign size={18} />
@@ -214,8 +214,8 @@ export default function CashLedgerPage({ onToast }) {
         <section className="panel cash-list-panel">
           <div className="panel-header">
             <div>
-              <h2>Catatan kas manual</h2>
-              <p>Pengeluaran dan pemasukan di luar transaksi penjualan.</p>
+              <h2>Catatan kas</h2>
+              <p>Pemasukan dan pengeluaran dari transaksi maupun catatan manual.</p>
             </div>
           </div>
           {loading ? (
@@ -252,7 +252,7 @@ export default function CashLedgerPage({ onToast }) {
                     {entry.entry_type === "pemasukan" ? "+" : "-"}{" "}
                     {money.format(entry.amount)}
                   </strong>
-                  <div className="cash-actions">
+                  {entry.source === "manual" && <div className="cash-actions">
                     <button
                       className="icon-button bordered"
                       onClick={() => openEdit(entry)}
@@ -267,7 +267,7 @@ export default function CashLedgerPage({ onToast }) {
                     >
                       <Trash2 size={15} />
                     </button>
-                  </div>
+                  </div>}
                 </div>
               ))}
             </div>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import QRCode from 'qrcode';
-import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServiceAccess, getServiceOpeningReceipt, getServices, getSettings, getTransactions, importAroniumCustomers, importProducts, login, logout, payTransaction, updateProduct, updateServiceStatus } from './api/client.js';
+import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServiceAccess, getServiceOpeningReceipt, getServices, getSettings, getTransactions, importAroniumCustomers, importProducts, login, logout, payTransaction, refundTransaction as issueRefund, updateProduct, updateServiceStatus } from './api/client.js';
 import ReceiptPrint from './components/ReceiptPrint.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
 import UserManagementPage from './components/UserManagementPage.jsx';
@@ -130,6 +130,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   const [returnToServiceAfterCustomer, setReturnToServiceAfterCustomer] = useState(false);
   const [transactions, setTransactions] = useState([]);
   const [settlementTransaction, setSettlementTransaction] = useState(null);
+  const [refundTarget, setRefundTarget] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -329,6 +330,19 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
     }
   }
 
+  async function submitRefund(transaction, reason) {
+    try {
+      const updated = await issueRefund(transaction.id, reason);
+      setTransactions((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setRefundTarget(null);
+      setToast(`Refund dicatat · ${formatPrice(updated.refund_amount)}`);
+      return true;
+    } catch (error) {
+      setToast(error.message || 'Refund gagal diproses');
+      return false;
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -363,7 +377,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
         {activePage === 'kasir' && can('admin', 'kasir') ? (
           <CashierView {...{ cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, addScannedProduct, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount: todayTransactions.length, todaySalesTotal, activeServiceCount: activeServiceTickets.length, approvalServiceCount: approvalServiceTickets.length, openProductModal: () => { setEditingProduct(null); setModal('product'); }, openCustomerModal: () => setModal('customer') }} />
         ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
-            : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} />
+            : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} onRefund={setRefundTarget} />
             : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onPrintLabel={can('admin', 'kasir') ? printProductLabel : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
               : activePage === 'pelanggan' && can('admin', 'kasir') ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} onImportCustomers={can('admin', 'kasir') ? importAroniumCustomerFile : undefined} />
                 : activePage === 'kas' && can('admin', 'kasir') ? <CashLedgerPage onToast={setToast} />
@@ -372,6 +386,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
                   : <UserView authUser={authUser} onLogout={onLogout} />}
         {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} onPrint={() => printReceipt(receipt)} />}
         {settlementTransaction && <SettlementModal transaction={settlementTransaction} onClose={() => setSettlementTransaction(null)} onSave={(amount) => settleTransaction(settlementTransaction, amount)} />}
+        {refundTarget && <RefundModal transaction={refundTarget} onClose={() => setRefundTarget(null)} onSave={(reason) => submitRefund(refundTarget, reason)} />}
         {modal === 'product' && <ProductModal product={editingProduct} onClose={() => { setEditingProduct(null); setModal(null); }} onSave={saveProduct} />}
         {modal === 'customer' && <CustomerModal onClose={() => setModal(null)} onSave={saveCustomer} />}
         {modal === 'service' && can('admin', 'kasir') && <ServiceModal customers={customers} customer={customer} onClose={() => { setModal(null); setReturnToServiceAfterCustomer(false); }} onSave={saveService} onAddCustomer={() => { setReturnToServiceAfterCustomer(true); setModal('customer'); }} />}
@@ -1134,11 +1149,11 @@ function SerialScanner({ onDetected }) {
 
 function SectionHeading({ eyebrow, title, description, action, onAction }) { return <section className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> {eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action && <button className="button primary" onClick={onAction}><Plus size={17} /> {action}</button>}</section>; }
 
-function TransactionHistory({ transactions, onPrint, onSettle }) {
+function TransactionHistory({ transactions, onPrint, onSettle, onRefund }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const filteredTransactions = transactions.filter((transaction) => `${transaction.invoice_number} ${transaction.transaction_type} ${transaction.payment_status} ${transaction.created_at}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const filteredTransactions = transactions.filter((transaction) => `${transaction.invoice_number} ${transaction.transaction_type} ${transaction.payment_status} ${transaction.refunded_at ? 'refund direfund' : ''} ${transaction.created_at}`.toLowerCase().includes(search.trim().toLowerCase()));
   const pageCount = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const visibleTransactions = filteredTransactions.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -1153,7 +1168,7 @@ function TransactionHistory({ transactions, onPrint, onSettle }) {
             Semua transaksi, <em>tersimpan.</em>
           </>
         }
-        description="Lihat invoice, cetak ulang nota, atau terima pelunasan."
+        description="Lihat invoice, cetak nota, terima pelunasan, atau proses refund penuh."
       />
       <section className="panel table-panel">
         <div className="panel-header">
@@ -1175,11 +1190,11 @@ function TransactionHistory({ transactions, onPrint, onSettle }) {
                   <small>{transaction.created_at}</small>
                 </div>
                 <span>
-                  {transaction.transaction_type} · {transaction.payment_status}
+                  {transaction.transaction_type} · {transaction.refunded_at ? 'direfund' : transaction.payment_status}
                 </span>
                 <strong>{formatPrice(transaction.grand_total)}</strong>
                 <div className="history-actions">
-                  {transaction.payment_status !== "lunas" &&
+                  {!transaction.refunded_at && transaction.payment_status !== "lunas" &&
                     Number(transaction.grand_total || 0) >
                       Number(transaction.paid_amount || 0) && (
                       <button
@@ -1190,6 +1205,7 @@ function TransactionHistory({ transactions, onPrint, onSettle }) {
                         Pelunasan
                       </button>
                     )}
+                  {!transaction.refunded_at && <button type="button" className="refund-button" onClick={() => onRefund(transaction)}>{Number(transaction.paid_amount || 0) > 0 ? 'Refund' : 'Batalkan'}</button>}
                   <button
                     type="button"
                     className="icon-button bordered"
@@ -1693,5 +1709,17 @@ function SettlementModal({ transaction, onClose, onSave }) {
   const [amount, setAmount] = useState(String(remaining));
   return <Modal title="Pelunasan transaksi" onClose={onClose}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); onSave(amount); }}><div className="form-note"><CircleDollarSign size={15} /> {transaction.invoice_number} · Sisa tagihan {formatPrice(remaining)}</div><Field label="Nominal pembayaran" required><input autoFocus required type="number" min="1" max={remaining} value={amount} onChange={(event) => setAmount(event.target.value)} /></Field><div className="modal-actions"><button type="button" className="button ghost" onClick={onClose}>Batal</button><button type="submit" className="button primary">Simpan pelunasan</button></div></form></Modal>;
 }
+ 
+ function RefundModal({ transaction, onClose, onSave }) {
+   const [reason, setReason] = useState('');
+   const [saving, setSaving] = useState(false);
+   async function submit(event) {
+     event.preventDefault();
+     setSaving(true);
+     const saved = await onSave(reason);
+     if (!saved) setSaving(false);
+   }
+   return <Modal title={Number(transaction.paid_amount || 0) > 0 ? 'Refund transaksi' : 'Batalkan transaksi'} onClose={onClose}><form className="modal-form" onSubmit={submit}><div className="form-note"><CircleDollarSign size={15} /> {transaction.invoice_number} · Pengembalian penuh {formatPrice(transaction.paid_amount || 0)}</div><p className="refund-warning">Stok barang terjual akan dikembalikan. Jika transaksi tukar tambah, barang yang diterima toko harus masih tersedia di inventori.</p><Field label="Alasan refund" required><textarea autoFocus required minLength="3" maxLength="500" rows="3" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Tuliskan alasan pembatalan atau refund" /></Field><div className="modal-actions"><button type="button" className="button ghost" disabled={saving} onClick={onClose}>Kembali</button><button type="submit" className="refund-confirm" disabled={saving || reason.trim().length < 3}>{saving ? 'Memproses...' : 'Konfirmasi refund'}</button></div></form></Modal>;
+ }
 
 export default App;

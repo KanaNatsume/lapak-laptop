@@ -75,14 +75,15 @@ export function createTransaction(request, response) {
   response.status(201).json(getTransactionById(checkout));
 }
 
-function getTransactionById(id) { const transaction = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id); if (!transaction) return null; return { ...transaction, items: db.prepare('SELECT * FROM transaction_items WHERE transaction_id = ?').all(id) }; }
+function getTransactionById(id) { const transaction = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id); if (!transaction) return null; const refund = db.prepare('SELECT amount AS refund_amount, reason AS refund_reason, created_at AS refunded_at FROM transaction_refunds WHERE transaction_id = ?').get(id); return { ...transaction, ...refund, refunded_at: refund?.refunded_at || null, items: db.prepare('SELECT * FROM transaction_items WHERE transaction_id = ?').all(id) }; }
 export function getTransaction(request, response) { const transaction = getTransactionById(request.params.id); if (!transaction) return response.status(404).json({ error: 'Transaksi tidak ditemukan' }); response.json(transaction); }
-export function listTransactions(_request, response) { response.json(db.prepare("SELECT * FROM transactions WHERE transaction_stage = 'final' ORDER BY created_at DESC").all()); }
+export function listTransactions(_request, response) { response.json(db.prepare("SELECT transactions.*, transaction_refunds.amount AS refund_amount, transaction_refunds.created_at AS refunded_at FROM transactions LEFT JOIN transaction_refunds ON transaction_refunds.transaction_id = transactions.id WHERE transactions.transaction_stage = 'final' ORDER BY transactions.created_at DESC").all()); }
 export function payTransaction(request, response) {
   const amount = Number(request.body.amount);
   if (!Number.isSafeInteger(amount) || amount <= 0) return response.status(400).json({ error: 'Nominal pembayaran harus angka bulat lebih besar dari 0' });
   const transaction = db.prepare('SELECT * FROM transactions WHERE id = ?').get(request.params.id);
   if (!transaction) return response.status(404).json({ error: 'Transaksi tidak ditemukan' });
+  if (db.prepare('SELECT id FROM transaction_refunds WHERE transaction_id = ?').get(transaction.id)) return response.status(409).json({ error: 'Transaksi sudah direfund dan tidak dapat menerima pelunasan' });
   if (transaction.transaction_stage === 'opening') return response.status(400).json({ error: 'Nota awal servis tidak dapat menerima pelunasan' });
   const remaining = Math.max(0, transaction.grand_total - transaction.paid_amount);
   if (!remaining) return response.status(400).json({ error: 'Transaksi sudah lunas' });
@@ -98,4 +99,41 @@ export function payTransaction(request, response) {
   });
   payment();
   response.json(getTransactionById(transaction.id));
+}
+
+export function refundTransaction(request, response) {
+  const reason = String(request.body.reason || '').trim();
+  if (!reason || reason.length > 500) return response.status(400).json({ error: 'Alasan refund wajib diisi maksimal 500 karakter' });
+  const transaction = db.prepare("SELECT * FROM transactions WHERE id = ? AND transaction_stage = 'final'").get(request.params.id);
+  if (!transaction) return response.status(404).json({ error: 'Transaksi tidak ditemukan' });
+  if (db.prepare('SELECT id FROM transaction_refunds WHERE transaction_id = ?').get(transaction.id)) return response.status(409).json({ error: 'Transaksi sudah direfund' });
+  const items = db.prepare('SELECT * FROM transaction_items WHERE transaction_id = ?').all(transaction.id);
+  const tradeInQuantities = new Map();
+  for (const item of items) {
+    if (item.item_type === 'product' && !db.prepare('SELECT id FROM products WHERE id = ?').get(item.reference_id)) return response.status(409).json({ error: `Produk ${item.name} tidak ditemukan untuk dikembalikan ke stok` });
+    if (item.item_type === 'trade_in') {
+      if (!item.reference_id) return response.status(409).json({ error: `Barang trade-in ${item.name} belum tertaut ke inventori` });
+      tradeInQuantities.set(item.reference_id, (tradeInQuantities.get(item.reference_id) || 0) + item.qty);
+    }
+  }
+  for (const [productId, qty] of tradeInQuantities) {
+    const product = db.prepare('SELECT stock FROM products WHERE id = ?').get(productId);
+    if (!product || product.stock < qty) return response.status(409).json({ error: 'Barang trade-in tidak tersedia di stok untuk dibatalkan' });
+  }
+
+  const applyRefund = db.transaction(() => {
+    for (const item of items) {
+      if (item.item_type === 'product') db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(item.qty, item.reference_id);
+    }
+    for (const [productId, qty] of tradeInQuantities) {
+      const updated = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?').run(qty, productId, qty);
+      if (updated.changes !== 1) throw new Error('Barang trade-in tidak tersedia di stok untuk dibatalkan');
+    }
+    db.prepare('INSERT INTO transaction_refunds (transaction_id, amount, reason, created_by) VALUES (?, ?, ?, ?)').run(transaction.id, transaction.paid_amount, reason, request.user.id);
+    if (transaction.paid_amount > 0) {
+      db.prepare('INSERT INTO cash_entries (entry_type, category, description, amount, source, entry_date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)').run('pengeluaran', 'Refund', `Refund ${transaction.invoice_number}: ${reason}`, transaction.paid_amount, 'transaction', new Date().toISOString().slice(0, 10), request.user.id);
+    }
+  });
+  applyRefund();
+  response.status(201).json(getTransactionById(transaction.id));
 }

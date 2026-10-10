@@ -16,8 +16,9 @@ export function listCashEntries(request, response) {
   const to = request.query.to || '2999-12-31';
   const entries = db.prepare(`SELECT cash_entries.*, users.name AS created_by_name FROM cash_entries LEFT JOIN users ON users.id = cash_entries.created_by WHERE entry_date BETWEEN ? AND ? ORDER BY entry_date DESC, id DESC`).all(from, to);
   const manual = db.prepare(`SELECT entry_type, COALESCE(SUM(amount), 0) AS total FROM cash_entries WHERE source = 'manual' AND entry_date BETWEEN ? AND ? GROUP BY entry_type`).all(from, to);
+  const expenses = db.prepare(`SELECT COALESCE(SUM(amount), 0) AS total FROM cash_entries WHERE entry_type = 'pengeluaran' AND entry_date BETWEEN ? AND ?`).get(from, to);
   const sales = db.prepare(`SELECT COALESCE(SUM(paid_amount), 0) AS total FROM transactions WHERE transaction_stage = 'final' AND date(created_at) BETWEEN ? AND ?`).get(from, to);
-  response.json({ entries, summary: { pemasukan_manual: manual.find((item) => item.entry_type === 'pemasukan')?.total || 0, pengeluaran: manual.find((item) => item.entry_type === 'pengeluaran')?.total || 0, penjualan: sales.total || 0 } });
+  response.json({ entries, summary: { pemasukan_manual: manual.find((item) => item.entry_type === 'pemasukan')?.total || 0, pengeluaran: expenses.total || 0, penjualan: sales.total || 0 } });
 }
 
 export function createCashEntry(request, response) {
@@ -29,6 +30,9 @@ export function createCashEntry(request, response) {
 }
 
 export function updateCashEntry(request, response) {
+  const existing = db.prepare('SELECT source FROM cash_entries WHERE id = ?').get(request.params.id);
+  if (!existing) return response.status(404).json({ error: 'Catatan kas tidak ditemukan' });
+  if (existing.source !== 'manual') return response.status(409).json({ error: 'Catatan transaksi tidak dapat diedit manual' });
   const error = validateEntry(request.body);
   if (error) return response.status(400).json({ error });
   const { entry_type, category, description, amount, entry_date = new Date().toISOString().slice(0, 10) } = request.body;
@@ -38,6 +42,9 @@ export function updateCashEntry(request, response) {
 }
 
 export function deleteCashEntry(request, response) {
+  const existing = db.prepare('SELECT source FROM cash_entries WHERE id = ?').get(request.params.id);
+  if (!existing) return response.status(404).json({ error: 'Catatan kas tidak ditemukan' });
+  if (existing.source !== 'manual') return response.status(409).json({ error: 'Catatan transaksi tidak dapat dihapus manual' });
   const result = db.prepare('DELETE FROM cash_entries WHERE id = ?').run(request.params.id);
   if (!result.changes) return response.status(404).json({ error: 'Catatan kas tidak ditemukan' });
   response.status(204).end();

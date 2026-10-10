@@ -143,6 +143,43 @@ test('trade-in checkout adds the received device to inventory', async () => {
   assert.equal(receivedProduct.stock, 1);
   assert.equal(receivedProduct.cost_price, 3000000);
   assert.equal(receivedProduct.selling_price, 4000000);
+  const refund = await request(`/api/transactions/${transaction.body.id}/refund`, { method: 'POST', token: tokens.cashier, body: JSON.stringify({ reason: 'Pembatalan tukar tambah' }) });
+  assert.equal(refund.status, 201);
+  const returnedTradeIn = await request('/api/products?search=iPad%2011%20(A16)&include_out_of_stock=true', { token: tokens.cashier });
+  assert.equal(returnedTradeIn.body.find((product) => product.id === receivedProduct.id).stock, 0);
+  const returnedSale = await request('/api/products?search=Trade-in%20Test%20Sale&include_out_of_stock=true', { token: tokens.cashier });
+  assert.equal(returnedSale.body[0].stock, 1);
+});
+
+test('transaction refund restores inventory and cannot be repeated', async () => {
+  const product = await request('/api/products', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ category: 'laptop', name: 'Refund Test Laptop', selling_price: 2500000, stock: 1 }) });
+  const transaction = await request('/api/transactions', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ customer_id: 1, items: [{ item_type: 'product', reference_id: product.body.id, qty: 1 }] }) });
+  const refundPayload = JSON.stringify({ reason: 'Barang tidak sesuai pesanan' });
+  const forbidden = await request(`/api/transactions/${transaction.body.id}/refund`, { method: 'POST', token: tokens.technician, body: refundPayload });
+  assert.equal(forbidden.status, 403);
+
+  const refund = await request(`/api/transactions/${transaction.body.id}/refund`, { method: 'POST', token: tokens.cashier, body: refundPayload });
+  assert.equal(refund.status, 201);
+  assert.equal(refund.body.refund_amount, transaction.body.paid_amount);
+  assert.equal(refund.body.refund_reason, 'Barang tidak sesuai pesanan');
+  assert.ok(refund.body.refunded_at);
+  const inventory = await request('/api/products?search=Refund%20Test%20Laptop&include_out_of_stock=true', { token: tokens.cashier });
+  assert.equal(inventory.body[0].stock, 1);
+  const cashRefund = db.prepare("SELECT * FROM cash_entries WHERE source = 'transaction' AND category = 'Refund' AND description LIKE ?").get(`Refund ${transaction.body.invoice_number}:%`);
+  assert.equal(cashRefund.amount, transaction.body.paid_amount);
+  const cashList = await request(`/api/cash-entries?from=${new Date().toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`, { token: tokens.cashier });
+  assert.ok(cashList.body.summary.pengeluaran >= cashRefund.amount);
+  const editRefund = await request(`/api/cash-entries/${cashRefund.id}`, { method: 'PUT', token: tokens.cashier, body: JSON.stringify({ entry_type: 'pengeluaran', category: 'Refund', description: 'Edit', amount: cashRefund.amount }) });
+  assert.equal(editRefund.status, 409);
+  const deleteRefund = await request(`/api/cash-entries/${cashRefund.id}`, { method: 'DELETE', token: tokens.cashier });
+  assert.equal(deleteRefund.status, 409);
+
+  const duplicateRefund = await request(`/api/transactions/${transaction.body.id}/refund`, { method: 'POST', token: tokens.cashier, body: refundPayload });
+  assert.equal(duplicateRefund.status, 409);
+  const settlement = await request(`/api/transactions/${transaction.body.id}/payment`, { method: 'POST', token: tokens.cashier, body: JSON.stringify({ amount: 1000 }) });
+  assert.equal(settlement.status, 409);
+  const inventoryAfterDuplicate = await request('/api/products?search=Refund%20Test%20Laptop&include_out_of_stock=true', { token: tokens.cashier });
+  assert.equal(inventoryAfterDuplicate.body[0].stock, 1);
 });
 
 test('service status: teknisi can advance service, cashier cannot', async () => {

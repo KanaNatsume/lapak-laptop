@@ -55,9 +55,10 @@
   }
 
   .history-row:not(.inventory-row) .history-actions {
-    grid-column: 2;
+    grid-column: 1 / -1;
     grid-row: 2;
     flex-wrap: nowrap;
+    justify-content: flex-end;
   }
 
   .history-row:not(.inventory-row) .history-actions .settle-button {

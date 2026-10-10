@@ -26,6 +26,7 @@ export const getSettings = () => api('/settings');
 export const updateSettings = (payload) => api('/settings', { method: 'PUT', body: JSON.stringify(payload) });
 export const getReceipt = (id) => api(`/transactions/${id}/receipt`);
 export const payTransaction = (id, amount) => api(`/transactions/${id}/payment`, { method: 'POST', body: JSON.stringify({ amount }) });
+export const refundTransaction = (id, reason) => api(`/transactions/${id}/refund`, { method: 'POST', body: JSON.stringify({ reason }) });
 export const createProduct = (payload) => api('/products', { method: 'POST', body: JSON.stringify(payload) });
 export const updateProduct = (id, payload) => api(`/products/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
 export const importProducts = (file) => api('/products/import', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form; })() });

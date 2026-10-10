@@ -81,6 +81,17 @@ CREATE TABLE IF NOT EXISTS transaction_items (
   FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS transaction_refunds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  transaction_id INTEGER NOT NULL UNIQUE,
+  amount INTEGER NOT NULL CHECK (amount >= 0),
+  reason TEXT NOT NULL,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS store_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   store_name TEXT NOT NULL DEFAULT 'Lapak Laptop',

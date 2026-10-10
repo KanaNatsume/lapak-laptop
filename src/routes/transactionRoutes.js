@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createTransaction, getTransaction, listTransactions, payTransaction } from '../controllers/transactionController.js';
+import { createTransaction, getTransaction, listTransactions, payTransaction, refundTransaction } from '../controllers/transactionController.js';
 import { getReceipt } from '../controllers/receiptController.js';
 import { authorize } from '../auth.js';
 const router = Router();
@@ -8,4 +8,5 @@ router.get('/transactions/:id', authorize('admin', 'kasir', 'teknisi'), getTrans
 router.get('/transactions/:id/receipt', authorize('admin', 'kasir', 'teknisi'), getReceipt);
 router.post('/transactions', authorize('admin', 'kasir'), createTransaction);
 router.post('/transactions/:id/payment', authorize('admin', 'kasir'), payTransaction);
+router.post('/transactions/:id/refund', authorize('admin', 'kasir'), refundTransaction);
 export default router;
