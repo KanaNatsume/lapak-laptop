@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyPendingMigrations, backupBeforePendingMigrations } from './migrationRunner.js';
 
 dotenv.config();
 
@@ -10,6 +11,8 @@ const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDirectory, '..');
 const databasePath = process.env.DATABASE_PATH || path.join(projectRoot, 'data', 'pos.sqlite');
 const schemaPath = path.join(projectRoot, 'schema.sql');
+const migrationDirectory = path.join(projectRoot, 'migrations');
+const backupDirectory = path.resolve(projectRoot, process.env.BACKUP_DIR || 'data/backups');
 
 fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 
@@ -17,6 +20,7 @@ const db = new Database(databasePath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.pragma('busy_timeout = 5000');
+await backupBeforePendingMigrations(db, { migrationDirectory, backupDirectory });
 db.exec(fs.readFileSync(schemaPath, 'utf8'));
 
 const productTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'products'").get()?.sql || '';
@@ -86,5 +90,8 @@ db.transaction(() => {
 		}
 	}
 })();
+
+const appliedMigrations = applyPendingMigrations(db, migrationDirectory);
+for (const migration of appliedMigrations) console.log(`Migrasi database diterapkan: ${migration.name}`);
 
 export default db;
