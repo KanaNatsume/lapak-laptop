@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS customers (
 
 CREATE TABLE IF NOT EXISTS products (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  category TEXT NOT NULL CHECK (category IN ('laptop', 'aksesoris', 'part_copotan')),
+  category TEXT NOT NULL CHECK (category IN ('laptop', 'aksesoris', 'part_copotan', 'gadget')),
   name TEXT NOT NULL,
   brand TEXT NOT NULL DEFAULT '',
   specs TEXT NOT NULL DEFAULT '{}',

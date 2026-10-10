@@ -56,6 +56,14 @@ test('permission: teknisi dapat membaca produk tetapi tidak membuat produk', asy
   assert.equal(create.status, 403);
 });
 
+test('product category: Gadget can be created and filtered', async () => {
+  const created = await request('/api/products', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ category: 'gadget', name: 'Test Gadget', brand: 'Samsung', selling_price: 5000000, cost_price: 4000000, stock: 2 }) });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.category, 'gadget');
+  const filtered = await request('/api/products?category=gadget&include_out_of_stock=true', { token: tokens.cashier });
+  assert.ok(filtered.body.some((product) => product.id === created.body.id));
+});
+
 test('transaction and stock: checkout reduces stock and rejects overselling', async () => {
   const created = await request('/api/products', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ category: 'laptop', name: 'Test Laptop', selling_price: 1000000, stock: 1 }) });
   assert.equal(created.status, 201);

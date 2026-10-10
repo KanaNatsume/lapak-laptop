@@ -17,7 +17,7 @@ export function listProducts(request, response) {
 
 export function createProduct(request, response) {
   const { category, name, brand = '', specs = {}, serial_number = null, grade_condition = 'B', cost_price = 0, selling_price = 0, stock = 0, notes = '' } = request.body;
-  if (!category || !name || !['laptop', 'aksesoris', 'part_copotan'].includes(category)) return response.status(400).json({ error: 'Kategori dan nama produk wajib diisi' });
+  if (!category || !name || !['laptop', 'aksesoris', 'part_copotan', 'gadget'].includes(category)) return response.status(400).json({ error: 'Kategori dan nama produk wajib diisi' });
   try {
     const result = db.prepare(`INSERT INTO products (category, name, brand, specs, serial_number, grade_condition, cost_price, selling_price, stock, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(category, name, brand, JSON.stringify(specs), serial_number || null, grade_condition, cost_price, selling_price, stock, notes);
     response.status(201).json(parseProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid)));
@@ -29,7 +29,7 @@ export function createProduct(request, response) {
 
 export function updateProduct(request, response) {
   const { category, name, brand = '', specs = {}, serial_number = null, grade_condition = 'B', cost_price = 0, selling_price = 0, stock = 0, notes = '' } = request.body;
-  if (!category || !name || !['laptop', 'aksesoris', 'part_copotan'].includes(category)) return response.status(400).json({ error: 'Kategori dan nama produk wajib diisi' });
+  if (!category || !name || !['laptop', 'aksesoris', 'part_copotan', 'gadget'].includes(category)) return response.status(400).json({ error: 'Kategori dan nama produk wajib diisi' });
   try {
     const result = db.prepare(`UPDATE products SET category = ?, name = ?, brand = ?, specs = ?, serial_number = ?, grade_condition = ?, cost_price = ?, selling_price = ?, stock = ?, notes = ? WHERE id = ?`).run(category, name, brand, JSON.stringify(specs), serial_number || null, grade_condition, cost_price, selling_price, stock, notes, request.params.id);
     if (!result.changes) return response.status(404).json({ error: 'Produk tidak ditemukan' });
@@ -54,7 +54,9 @@ function parseCsv(buffer) {
 
 function normalizeCategory(value) {
   const category = String(value || '').trim().toLowerCase().replaceAll(' ', '_');
-  return category === 'part' ? 'part_copotan' : category;
+  if (category === 'part') return 'part_copotan';
+  if (category === 'gadget') return 'gadget';
+  return category;
 }
 
 const specificationTemplateColumns = ['processor', 'gpu', 'memory', 'storage', 'storage_note', 'display', 'display_note', 'port_io', 'port_io_note', 'feature', 'contents', 'unit_source', 'physical_description', 'keyboard_description', 'touchpad', 'touchpad_note', 'battery_cycle_count', 'battery_capacity', 'battery_health', 'benchmark_cinebench_r23', 'benchmark_superposition', 'benchmark_valley', 'charger_voltage', 'charger_ampere', 'audio', 'audio_note', 'camera', 'security', 'lock_status'];
@@ -131,7 +133,7 @@ export async function importProducts(request, response) {
     const stock = Number(importValue(row, ['stock', 'stok', 'jumlah']) || 0);
     const specs = readSpecifications(row);
     if (!name) errors.push(`Baris ${line}: nama produk wajib diisi`);
-    if (!['laptop', 'aksesoris', 'part_copotan'].includes(category)) errors.push(`Baris ${line}: kategori harus laptop, aksesoris, atau part_copotan`);
+    if (!['laptop', 'aksesoris', 'part_copotan', 'gadget'].includes(category)) errors.push(`Baris ${line}: kategori harus laptop, aksesoris, part_copotan, atau gadget`);
     if (!Number.isInteger(costPrice) || costPrice < 0 || !Number.isInteger(sellingPrice) || sellingPrice < 0) errors.push(`Baris ${line}: harga harus bilangan bulat >= 0`);
     if (!Number.isInteger(stock) || stock < 0) errors.push(`Baris ${line}: stok harus bilangan bulat >= 0`);
     return { line, category, name, brand, serialNumber, specs, costPrice, sellingPrice, stock, notes: String(importValue(row, ['notes', 'catatan']) || '').trim() };

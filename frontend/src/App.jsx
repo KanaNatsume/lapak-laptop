@@ -57,6 +57,7 @@ const demoCustomers = [
 
 const currency = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 });
 const formatPrice = (value) => currency.format(value).replace('Rp', 'Rp ');
+const productCategoryLabel = (category) => ({ laptop: 'Laptop', aksesoris: 'Aksesoris', part_copotan: 'Part copotan', gadget: 'Gadget' }[category] || category);
 const formatSpecs = (specs = {}) => Object.entries(specs).filter(([key, value]) => key !== 'grade_condition' && !key.endsWith('_note') && value).flatMap(([, value]) => Array.isArray(value) ? value : typeof value === 'object' ? Object.values(value).filter(Boolean) : value).join(' · ') || 'Spesifikasi belum diisi';
 const pageTitle = (page) => ({ kasir: 'Kasir baru', servis: 'Antrian servis', riwayat: 'Riwayat transaksi', inventori: 'Inventori', pelanggan: 'Pelanggan', kas: 'Kas toko', pengaturan: 'Pengaturan', users: 'Manajemen user', user: 'Profil pengguna' }[page] || 'Workspace');
 const escapePrintText = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
@@ -106,6 +107,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   const [editingProduct, setEditingProduct] = useState(null);
   const [returnToServiceAfterCustomer, setReturnToServiceAfterCustomer] = useState(false);
   const [transactions, setTransactions] = useState([]);
+  const [settlementTransaction, setSettlementTransaction] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -114,8 +116,8 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
 
   useEffect(() => {
     Promise.all([getProducts(), getProducts('', true), getCustomers(), getServices(), getTransactions(), getNotifications()]).then(([loadedProducts, loadedInventory, loadedCustomers, loadedServices, loadedTransactions, loadedNotifications]) => {
-      const normalizedProducts = loadedProducts.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: item.category === 'laptop' ? 'Laptop' : item.category === 'aksesoris' ? 'Aksesoris' : 'Part copotan', spec: formatSpecs(item.specs) }));
-      const normalizedInventory = loadedInventory.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: item.category === 'laptop' ? 'Laptop' : item.category === 'aksesoris' ? 'Aksesoris' : 'Part copotan', spec: formatSpecs(item.specs) }));
+      const normalizedProducts = loadedProducts.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: productCategoryLabel(item.category), spec: formatSpecs(item.specs) }));
+      const normalizedInventory = loadedInventory.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: productCategoryLabel(item.category), spec: formatSpecs(item.specs) }));
       setProducts(normalizedProducts);
       setInventoryProducts(normalizedInventory);
       setCustomers(loadedCustomers);
@@ -177,7 +179,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   async function saveProduct(payload) {
     try {
       const saved = editingProduct ? await updateProduct(editingProduct.id, payload) : await createProduct(payload);
-      const normalized = { ...saved, price: saved.selling_price, grade: saved.grade_condition, serial: saved.serial_number || '', category: saved.category === 'laptop' ? 'Laptop' : saved.category === 'aksesoris' ? 'Aksesoris' : 'Part copotan', spec: formatSpecs(saved.specs) };
+      const normalized = { ...saved, price: saved.selling_price, grade: saved.grade_condition, serial: saved.serial_number || '', category: productCategoryLabel(saved.category), spec: formatSpecs(saved.specs) };
       if (editingProduct) {
         setProducts((current) => current.map((item) => item.id === normalized.id ? normalized : item));
         setInventoryProducts((current) => current.map((item) => item.id === normalized.id ? normalized : item));
@@ -203,7 +205,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
         }
       }
       localStorage.setItem('pos_custom_spec_options', JSON.stringify(storedOptions));
-      const normalized = result.products.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: item.category === 'laptop' ? 'Laptop' : item.category === 'aksesoris' ? 'Aksesoris' : 'Part copotan', spec: formatSpecs(item.specs) }));
+      const normalized = result.products.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: productCategoryLabel(item.category), spec: formatSpecs(item.specs) }));
       const mergeProducts = (current) => { const importedIds = new Set(normalized.map((item) => item.id)); return [...normalized, ...current.filter((item) => !importedIds.has(item.id))]; };
       setProducts(mergeProducts);
       setInventoryProducts(mergeProducts);
@@ -272,20 +274,17 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
     try { setReceipt(await getReceipt(transaction.id)); } catch (error) { setToast(error.message); }
   }
 
-  async function settleTransaction(transaction) {
+  async function settleTransaction(transaction, amount) {
     const remaining = Math.max(0, Number(transaction.grand_total || 0) - Number(transaction.paid_amount || 0));
-    if (!remaining) return setToast('Transaksi ini tidak memiliki sisa tagihan');
-    const amount = Number(window.prompt(`Sisa tagihan ${formatPrice(remaining)}:`));
-    if (!amount || amount <= 0) return;
+    if (amount === undefined) return remaining > 0 ? setSettlementTransaction(transaction) : setToast('Transaksi ini tidak memiliki sisa tagihan');
+    if (!remaining || Number(amount) <= 0) return setToast('Nominal pelunasan tidak valid');
     try { 
-      console.log('Settling transaction:', { id: transaction.id, invoice: transaction.invoice_number, remaining, amount, stage: transaction.transaction_stage });
-      const updated = await payTransaction(transaction.id, amount); 
-      console.log('Payment result:', updated); 
+      const updated = await payTransaction(transaction.id, Number(amount)); 
       setTransactions((current) => current.map((item) => item.id === updated.id ? updated : item)); 
+      setSettlementTransaction(null);
       setReceipt(await getReceipt(updated.id)); 
       setToast(`Pembayaran ${updated.payment_status}`); 
     } catch (error) { 
-      console.error('Settlement error:', error);
       setToast(error.message || 'Gagal melunasi'); 
     }
   }
@@ -332,6 +331,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
                 : activePage === 'pengaturan' && can('admin') ? <SettingsPage onSaved={(message, settings) => { setToast(message); if (settings) setStoreSettings(settings); }} />
                   : <UserView authUser={authUser} onLogout={onLogout} />}
         {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} onPrint={() => printReceipt(receipt)} />}
+        {settlementTransaction && <SettlementModal transaction={settlementTransaction} onClose={() => setSettlementTransaction(null)} onSave={(amount) => settleTransaction(settlementTransaction, amount)} />}
         {modal === 'product' && <ProductModal product={editingProduct} onClose={() => { setEditingProduct(null); setModal(null); }} onSave={saveProduct} />}
         {modal === 'customer' && <CustomerModal onClose={() => setModal(null)} onSave={saveCustomer} />}
         {modal === 'service' && can('admin', 'kasir') && <ServiceModal customers={customers} customer={customer} onClose={() => { setModal(null); setReturnToServiceAfterCustomer(false); }} onSave={saveService} onAddCustomer={() => { setReturnToServiceAfterCustomer(true); setModal('customer'); }} />}
@@ -355,7 +355,7 @@ function CashierView(props) {
       <section className="catalog-panel panel">
         <div className="panel-header"><div><h2>Pilih barang</h2><p>{filteredProducts.length} barang tersedia untuk dijual</p></div><div className="filter-pill"><span className="filter-dot" /> {category || 'Semua kategori'} <ChevronDown size={14} /></div></div>
         <div className="search-field large"><Search size={18} /><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Cari nama, brand, atau serial number..." /><kbd>⌘ K</kbd></div>
-        <div className="category-tabs"><button className={!category ? 'selected' : ''} onClick={() => setCategory('')}>Semua <span>{filteredProducts.length}</span></button><button className={category === 'Laptop' ? 'selected' : ''} onClick={() => setCategory('Laptop')}>Laptop</button><button className={category === 'Aksesoris' ? 'selected' : ''} onClick={() => setCategory('Aksesoris')}>Aksesoris</button><button className={category === 'Part copotan' ? 'selected' : ''} onClick={() => setCategory('Part copotan')}>Part copotan</button></div>
+        <div className="category-tabs"><button className={!category ? 'selected' : ''} onClick={() => setCategory('')}>Semua <span>{filteredProducts.length}</span></button><button className={category === 'Laptop' ? 'selected' : ''} onClick={() => setCategory('Laptop')}>Laptop</button><button className={category === 'Aksesoris' ? 'selected' : ''} onClick={() => setCategory('Aksesoris')}>Aksesoris</button><button className={category === 'Part copotan' ? 'selected' : ''} onClick={() => setCategory('Part copotan')}>Part copotan</button><button className={category === 'Gadget' ? 'selected' : ''} onClick={() => setCategory('Gadget')}>Gadget</button></div>
         <div className="product-list">{loading ? <div className="empty-cart">Memuat inventori...</div> : filteredProducts.map((product) => <ProductRow key={product.id} product={product} onAdd={() => addToCart(product)} />)}</div>
       </section>
       <section className="checkout-panel panel">
@@ -417,15 +417,184 @@ const specificationPresets = [
 ];
 
 function ProductModal({ product, onClose, onSave }) {
-  const [form, setForm] = useState(() => product ? { category: product.category === 'Laptop' ? 'laptop' : product.category === 'Aksesoris' ? 'aksesoris' : 'part_copotan', name: product.name, brand: product.brand || '', serial_number: product.serial_number || product.serial || '', selling_price: product.selling_price, cost_price: product.cost_price, stock: product.stock, specs: product.specs || {}, notes: product.notes || '' } : { category: 'laptop', name: '', brand: '', serial_number: '', selling_price: '', cost_price: '', stock: '1', specs: {}, notes: '' });
-  const update = (key) => (event) => setForm({ ...form, [key]: event.target.value });
-  function submit(event) { event.preventDefault(); onSave({ ...form, selling_price: Number(form.selling_price), cost_price: Number(form.cost_price || 0), stock: Number(form.stock), notes: form.notes }); }
-  return <Modal title="Tambah produk" onClose={onClose}><form className="modal-form product-form" onSubmit={submit}><div className="form-grid"><Field label="Nama / model" required><input required value={form.name} onChange={update('name')} placeholder="Contoh: ThinkPad T480" /></Field><Field label="Brand"><input value={form.brand} onChange={update('brand')} placeholder="Lenovo" /></Field><Field label="Kategori"><select value={form.category} onChange={update('category')}><option value="laptop">Laptop</option><option value="aksesoris">Aksesoris</option><option value="part_copotan">Part copotan</option></select></Field><Field label="Serial number"><div className="scan-field"><input value={form.serial_number} onChange={update('serial_number')} placeholder="Opsional untuk aksesoris" /><SerialScanner onDetected={(serial_number) => setForm({ ...form, serial_number })} /></div></Field><Field label="Stok"><input required type="number" min="0" value={form.stock} onChange={update('stock')} /></Field><Field label="Harga modal"><input required type="number" min="0" value={form.cost_price} onChange={update('cost_price')} placeholder="0" /></Field><Field label="Harga jual"><input required type="number" min="0" value={form.selling_price} onChange={update('selling_price')} placeholder="0" /></Field></div><section className="specification-editor"><div className="specification-heading"><div><strong>Preset atribut spesifikasi</strong><small>Pilih spesifikasi yang sesuai. Anda bisa menambahkan pilihan sendiri.</small></div><span>{specificationPresets.filter((group) => { const value = form.specs[group.key]; return Array.isArray(value) ? value.length : value; }).length} bagian terisi</span></div><div className="specification-grid">{specificationPresets.map((group) => <SpecificationGroup key={group.key} group={group} value={form.specs[group.key]} note={form.specs[`${group.key}_note`] || ''} onChange={(value) => setForm({ ...form, specs: { ...form.specs, [group.key]: value } })} onNoteChange={(note) => setForm({ ...form, specs: { ...form.specs, [`${group.key}_note`]: note } })} />)}</div></section><Field label="Keterangan umum"><textarea value={form.notes} onChange={update('notes')} rows="3" placeholder="Kondisi fisik, kelengkapan, catatan garansi, atau keterangan lain..." /></Field><ModalActions onClose={onClose} /></form></Modal>;
+  const [form, setForm] = useState(() =>
+    product
+      ? {
+          category:
+            {
+              Laptop: "laptop",
+              Aksesoris: "aksesoris",
+              "Part copotan": "part_copotan",
+              Gadget: "gadget",
+            }[product.category] || product.category,
+          name: product.name,
+          brand: product.brand || "",
+          serial_number: product.serial_number || product.serial || "",
+          selling_price: product.selling_price,
+          cost_price: product.cost_price,
+          stock: product.stock,
+          specs: product.specs || {},
+          notes: product.notes || "",
+        }
+      : {
+          category: "laptop",
+          name: "",
+          brand: "",
+          serial_number: "",
+          selling_price: "",
+          cost_price: "",
+          stock: "1",
+          specs: {},
+          notes: "",
+        },
+  );
+  const update = (key) => (event) =>
+    setForm({ ...form, [key]: event.target.value });
+  function submit(event) {
+    event.preventDefault();
+    onSave({
+      ...form,
+      selling_price: Number(form.selling_price),
+      cost_price: Number(form.cost_price || 0),
+      stock: Number(form.stock),
+      notes: form.notes,
+    });
+  }
+  return (
+    <Modal title="Tambah produk" onClose={onClose}>
+      <form className="modal-form product-form" onSubmit={submit}>
+        <div className="form-grid">
+          <Field label="Nama / model" required>
+            <input
+              required
+              value={form.name}
+              onChange={update("name")}
+              placeholder="Contoh: ThinkPad T480"
+            />
+          </Field>
+          <Field label="Brand">
+            <input
+              value={form.brand}
+              onChange={update("brand")}
+              placeholder="Lenovo"
+            />
+          </Field>
+          <Field label="Kategori">
+            <select value={form.category} onChange={update("category")}>
+              <option value="laptop">Laptop</option>
+              <option value="aksesoris">Aksesoris</option>
+              <option value="part_copotan">Part copotan</option>
+              <option value="gadget">Gadget</option>
+            </select>
+          </Field>
+          <Field label="Serial number">
+            <div className="scan-field">
+              <input
+                value={form.serial_number}
+                onChange={update("serial_number")}
+                placeholder="Opsional untuk aksesoris"
+              />
+              <SerialScanner
+                onDetected={(serial_number) =>
+                  setForm({ ...form, serial_number })
+                }
+              />
+            </div>
+          </Field>
+          <Field label="Stok">
+            <input
+              required
+              type="number"
+              min="0"
+              value={form.stock}
+              onChange={update("stock")}
+            />
+          </Field>
+          <Field label="Harga modal">
+            <input
+              required
+              type="number"
+              min="0"
+              value={form.cost_price}
+              onChange={update("cost_price")}
+              placeholder="0"
+            />
+          </Field>
+          <Field label="Harga jual">
+            <input
+              required
+              type="number"
+              min="0"
+              value={form.selling_price}
+              onChange={update("selling_price")}
+              placeholder="0"
+            />
+          </Field>
+        </div>
+        <section className="specification-editor">
+          <div className="specification-heading">
+            <div>
+              <strong>Preset atribut spesifikasi</strong>
+              <small>
+                Pilih spesifikasi yang sesuai. Anda bisa menambahkan pilihan
+                sendiri.
+              </small>
+            </div>
+            <span>
+              {
+                specificationPresets.filter((group) => {
+                  const value = form.specs[group.key];
+                  return Array.isArray(value) ? value.length : value;
+                }).length
+              }{" "}
+              bagian terisi
+            </span>
+          </div>
+          <div className="specification-grid">
+            {specificationPresets.map((group) => (
+              <SpecificationGroup
+                key={group.key}
+                group={group}
+                value={form.specs[group.key]}
+                note={form.specs[`${group.key}_note`] || ""}
+                onChange={(value) =>
+                  setForm({
+                    ...form,
+                    specs: { ...form.specs, [group.key]: value },
+                  })
+                }
+                onNoteChange={(note) =>
+                  setForm({
+                    ...form,
+                    specs: { ...form.specs, [`${group.key}_note`]: note },
+                  })
+                }
+              />
+            ))}
+          </div>
+        </section>
+        <Field label="Keterangan umum">
+          <textarea
+            value={form.notes}
+            onChange={update("notes")}
+            rows="3"
+            placeholder="Kondisi fisik, kelengkapan, catatan garansi, atau keterangan lain..."
+          />
+        </Field>
+        <ModalActions onClose={onClose} />
+      </form>
+    </Modal>
+  );
 }
 
 function uniqueSpecificationOptions(options) {
   const seen = new Set();
-  return options.filter((option) => { const key = String(option).trim().toLowerCase(); if (!key || seen.has(key)) return false; seen.add(key); return true; });
+  return options.filter((option) => {
+    const key = String(option).trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function SpecificationGroup({ group, value, customOptions = [], onOptionsChange, note, onChange, onNoteChange }) {
@@ -522,21 +691,326 @@ function TransactionHistory({ transactions, onPrint, onSettle }) {
   return <><SectionHeading eyebrow="CATATAN PENJUALAN" title={<>Semua transaksi, <em>tersimpan.</em></>} description="Lihat invoice, cetak ulang nota, atau terima pelunasan." /><section className="panel table-panel"><div className="panel-header"><div><h2>Riwayat transaksi</h2><p>{transactions.length} transaksi terbaru</p></div><div className="search-field"><Search size={15} /><input placeholder="Cari invoice..." /></div></div><div className="history-list">{transactions.length ? transactions.map((transaction) => <div className="history-row" key={transaction.id}><div><strong>{transaction.invoice_number}</strong><small>{transaction.created_at}</small></div><span>{transaction.transaction_type} · {transaction.payment_status}</span><strong>{formatPrice(transaction.grand_total)}</strong><div className="history-actions">{transaction.payment_status !== 'lunas' && Number(transaction.grand_total || 0) > Number(transaction.paid_amount || 0) && <button type="button" className="settle-button" onClick={() => onSettle(transaction)}>Pelunasan</button>}<button type="button" className="icon-button bordered" onClick={() => onPrint(transaction)} aria-label={`Cetak ${transaction.invoice_number}`}><Printer size={16} /></button></div></div>) : <div className="empty-state"><ClipboardList size={30} /><strong>Belum ada transaksi</strong><span>Transaksi yang selesai akan muncul di sini.</span></div>}</div></section></>;
 }
 
-function InventoryView({ products, openProductModal, onEditProduct, onImportProducts, onDownloadTemplate }) {
-  return <><SectionHeading eyebrow="KELOLA STOK" title={<>Inventori yang <em>rapi.</em></>} description="Pantau barang, serial number, dan stok yang tersedia." action={openProductModal ? 'Tambah produk' : undefined} onAction={openProductModal} /><section className="panel table-panel"><div className="panel-header"><div><h2>Daftar inventori</h2><p>{products.length} produk aktif</p></div><div className="inventory-actions">{onImportProducts && <><button className="button ghost" onClick={onDownloadTemplate}><Download size={15} /> Template Excel</button><label className="button primary" htmlFor="product-import-file"><FileSpreadsheet size={15} /> Import Excel</label><input id="product-import-file" hidden type="file" accept=".xlsx,.xls,.csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportProducts(file); event.target.value = ''; }} /></>}<div className="search-field"><Search size={15} /><input placeholder="Cari produk atau serial..." /></div></div></div><div className="history-list">{products.length ? products.map((product) => <div className="history-row" key={product.id}><div><strong>{product.name}</strong><small>{product.brand} · {product.serial || 'Tanpa serial'}</small></div><strong>{formatPrice(product.price)}</strong><span className="stock-label">{product.stock} stok</span>{onEditProduct ? <button className="icon-button bordered" onClick={() => onEditProduct(product)} aria-label={`Edit ${product.name}`}><Pencil size={15} /></button> : <span />}</div>) : <div className="empty-state"><ShoppingBag size={30} /><strong>Inventori kosong</strong><span>Tambahkan produk pertama Anda.</span></div>}</div></section></>;
+function InventoryView({
+  products,
+  openProductModal,
+  onEditProduct,
+  onImportProducts,
+  onDownloadTemplate,
+}) {
+  const [category, setCategory] = useState("");
+  const filteredProducts = products.filter(
+    (product) => !category || product.category === category,
+  );
+  const categoryCount = (value) =>
+    products.filter((product) => product.category === value).length;
+  const totalCost = filteredProducts.reduce(
+    (total, product) =>
+      total + Number(product.cost_price || 0) * Number(product.stock || 0),
+    0,
+  );
+  return (
+    <>
+      <SectionHeading
+        eyebrow="KELOLA STOK"
+        title={
+          <>
+            Inventori yang <em>rapi.</em>
+          </>
+        }
+        description="Pantau barang, serial number, dan stok yang tersedia."
+        action={openProductModal ? "Tambah produk" : undefined}
+        onAction={openProductModal}
+      />
+      <section className="panel table-panel">
+        <div className="panel-header">
+          <div>
+            <h2>Daftar inventori</h2>
+            <p>
+              {filteredProducts.length} produk ditampilkan · Total modal{" "}
+              <strong>{formatPrice(totalCost)}</strong>
+            </p>
+          </div>
+          <div className="inventory-actions">
+            {onImportProducts && (
+              <>
+                <button className="button ghost" onClick={onDownloadTemplate}>
+                  <Download size={15} /> Template Excel
+                </button>
+                <label className="button primary" htmlFor="product-import-file">
+                  <FileSpreadsheet size={15} /> Import Excel
+                </label>
+                <input
+                  id="product-import-file"
+                  hidden
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) onImportProducts(file);
+                    event.target.value = "";
+                  }}
+                />
+              </>
+            )}
+            <div className="search-field">
+              <Search size={15} />
+              <input placeholder="Cari produk atau serial..." />
+            </div>
+          </div>
+        </div>
+        <div className="category-tabs inventory-category-tabs">
+          <button
+            className={!category ? "selected" : ""}
+            onClick={() => setCategory("")}
+          >
+            Semua <span>{products.length}</span>
+          </button>
+          <button
+            className={category === "Laptop" ? "selected" : ""}
+            onClick={() => setCategory("Laptop")}
+          >
+            Laptop <span>{categoryCount("Laptop")}</span>
+          </button>
+          <button
+            className={category === "Aksesoris" ? "selected" : ""}
+            onClick={() => setCategory("Aksesoris")}
+          >
+            Aksesoris <span>{categoryCount("Aksesoris")}</span>
+          </button>
+          <button
+            className={category === "Part copotan" ? "selected" : ""}
+            onClick={() => setCategory("Part copotan")}
+          >
+            Part <span>{categoryCount("Part copotan")}</span>
+          </button>
+          <button
+            className={category === "Gadget" ? "selected" : ""}
+            onClick={() => setCategory("Gadget")}
+          >
+            Gadget <span>{categoryCount("Gadget")}</span>
+          </button>
+        </div>
+        <div className="history-list">
+          {filteredProducts.length ? (
+            filteredProducts.map((product) => (
+              <div className="history-row" key={product.id}>
+                <div>
+                  <strong>{product.name}</strong>
+                  <small>
+                    {product.brand} · {product.serial || "Tanpa serial"}
+                  </small>
+                </div>
+                <strong>{formatPrice(product.price)}</strong>
+                <span className="stock-label">{product.stock} stok</span>
+                {onEditProduct ? (
+                  <button
+                    className="icon-button bordered"
+                    onClick={() => onEditProduct(product)}
+                    aria-label={`Edit ${product.name}`}
+                  >
+                    <Pencil size={15} />
+                  </button>
+                ) : (
+                  <span />
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">
+              <ShoppingBag size={30} />
+              <strong>Tidak ada produk</strong>
+              <span>Belum ada produk pada kategori ini.</span>
+            </div>
+          )}
+        </div>
+      </section>
+    </>
+  );
 }
 
 function CustomerView({ customers, openCustomerModal }) {
-  return <><SectionHeading eyebrow="DATABASE PELANGGAN" title={<>Kenali pelanggan, <em>lebih dekat.</em></>} description="Simpan kontak pelanggan untuk transaksi dan servis berikutnya." action={openCustomerModal ? 'Tambah pelanggan' : undefined} onAction={openCustomerModal} /><section className="panel table-panel"><div className="panel-header"><div><h2>Daftar pelanggan</h2><p>{customers.length} kontak tersimpan</p></div></div><div className="history-list">{customers.length ? customers.map((item) => <div className="history-row" key={item.id}><div className="customer-table-name"><div className="avatar small">{item.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</div><strong>{item.name}</strong></div><span>{item.phone}</span><span>{item.address || 'Alamat belum diisi'}</span><button className="icon-button bordered"><ArrowUpRight size={16} /></button></div>) : <div className="empty-state"><UsersRound size={30} /><strong>Belum ada pelanggan</strong><span>Tambahkan pelanggan baru untuk mulai.</span></div>}</div></section></>;
+  return (
+    <>
+      <SectionHeading
+        eyebrow="DATABASE PELANGGAN"
+        title={
+          <>
+            Kenali pelanggan, <em>lebih dekat.</em>
+          </>
+        }
+        description="Simpan kontak pelanggan untuk transaksi dan servis berikutnya."
+        action={openCustomerModal ? "Tambah pelanggan" : undefined}
+        onAction={openCustomerModal}
+      />
+      <section className="panel table-panel">
+        <div className="panel-header">
+          <div>
+            <h2>Daftar pelanggan</h2>
+            <p>{customers.length} kontak tersimpan</p>
+          </div>
+        </div>
+        <div className="history-list">
+          {customers.length ? (
+            customers.map((item) => (
+              <div className="history-row" key={item.id}>
+                <div className="customer-table-name">
+                  <div className="avatar small">
+                    {item.name
+                      .split(" ")
+                      .map((part) => part[0])
+                      .join("")
+                      .slice(0, 2)}
+                  </div>
+                  <strong>{item.name}</strong>
+                </div>
+                <span>{item.phone}</span>
+                <span>{item.address || "Alamat belum diisi"}</span>
+                <button className="icon-button bordered">
+                  <ArrowUpRight size={16} />
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">
+              <UsersRound size={30} />
+              <strong>Belum ada pelanggan</strong>
+              <span>Tambahkan pelanggan baru untuk mulai.</span>
+            </div>
+          )}
+        </div>
+      </section>
+    </>
+  );
 }
 
-function SettingsView() { return <><SectionHeading eyebrow="KONFIGURASI TOKO" title={<>Atur toko <em>sesuai ritme.</em></>} description="Kelola preferensi cetak nota dan operasional toko." /><section className="panel settings-panel"><div className="setting-row"><div><strong>Nama toko</strong><span>Nama yang tampil pada nota thermal</span></div><input defaultValue="Lapak Laptop" /></div><div className="setting-row"><div><strong>Alamat toko</strong><span>Alamat yang tampil pada nota thermal</span></div><input defaultValue="Jl. Teknologi No. 18" /></div><div className="setting-row"><div><strong>Garansi default</strong><span>Catatan garansi untuk transaksi baru</span></div><input defaultValue="Garansi toko 7 hari" /></div><button className="button primary">Simpan pengaturan</button></section></>; }
+function SettingsView() {
+  return (
+    <>
+      <SectionHeading
+        eyebrow="KONFIGURASI TOKO"
+        title={
+          <>
+            Atur toko <em>sesuai ritme.</em>
+          </>
+        }
+        description="Kelola preferensi cetak nota dan operasional toko."
+      />
+      <section className="panel settings-panel">
+        <div className="setting-row">
+          <div>
+            <strong>Nama toko</strong>
+            <span>Nama yang tampil pada nota thermal</span>
+          </div>
+          <input defaultValue="Lapak Laptop" />
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>Alamat toko</strong>
+            <span>Alamat yang tampil pada nota thermal</span>
+          </div>
+          <input defaultValue="Jl. Teknologi No. 18" />
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>Garansi default</strong>
+            <span>Catatan garansi untuk transaksi baru</span>
+          </div>
+          <input defaultValue="Garansi toko 7 hari" />
+        </div>
+        <button className="button primary">Simpan pengaturan</button>
+      </section>
+    </>
+  );
+}
 
 function UserView({ authUser, onLogout }) {
-  const [form, setForm] = useState({ current_password: '', new_password: '' });
-  const [message, setMessage] = useState('');
-  async function submit(event) { event.preventDefault(); try { await changePassword(form); setMessage('Password berhasil diubah. Silakan login kembali.'); setTimeout(onLogout, 700); } catch (error) { setMessage(error.message); } }
-  return <><SectionHeading eyebrow="AKUN PENGGUNA" title={<>Halo, <em>{authUser.name.split(' ')[0]}.</em></>} description="Kelola identitas dan akses kerja Anda." /><section className="panel settings-panel"><div className="user-profile-card"><div className="avatar large">{authUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</div><div><h2>{authUser.name}</h2><p>{authUser.role}</p></div></div><div className="setting-row"><div><strong>Username</strong><span>Identitas login akun</span></div><input value={authUser.username} readOnly /></div><form onSubmit={submit}><div className="setting-row"><div><strong>Password lama</strong><span>Verifikasi sebelum mengganti password</span></div><input required type="password" value={form.current_password} onChange={(event) => setForm({ ...form, current_password: event.target.value })} /></div><div className="setting-row"><div><strong>Password baru</strong><span>Minimal 10 karakter</span></div><input required minLength="10" type="password" value={form.new_password} onChange={(event) => setForm({ ...form, new_password: event.target.value })} /></div>{message && <p className="login-error">{message}</p>}<button className="button primary" type="submit">Ubah password</button></form><button className="text-button" onClick={onLogout}>Keluar dari akun</button></section></>; }
+  const [form, setForm] = useState({ current_password: "", new_password: "" });
+  const [message, setMessage] = useState("");
+  async function submit(event) {
+    event.preventDefault();
+    try {
+      await changePassword(form);
+      setMessage("Password berhasil diubah. Silakan login kembali.");
+      setTimeout(onLogout, 700);
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+  return (
+    <>
+      <SectionHeading
+        eyebrow="AKUN PENGGUNA"
+        title={
+          <>
+            Halo, <em>{authUser.name.split(" ")[0]}.</em>
+          </>
+        }
+        description="Kelola identitas dan akses kerja Anda."
+      />
+      <section className="panel settings-panel">
+        <div className="user-profile-card">
+          <div className="avatar large">
+            {authUser.name
+              .split(" ")
+              .map((part) => part[0])
+              .join("")
+              .slice(0, 2)}
+          </div>
+          <div>
+            <h2>{authUser.name}</h2>
+            <p>{authUser.role}</p>
+          </div>
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>Username</strong>
+            <span>Identitas login akun</span>
+          </div>
+          <input value={authUser.username} readOnly />
+        </div>
+        <form onSubmit={submit}>
+          <div className="setting-row">
+            <div>
+              <strong>Password lama</strong>
+              <span>Verifikasi sebelum mengganti password</span>
+            </div>
+            <input
+              required
+              type="password"
+              value={form.current_password}
+              onChange={(event) =>
+                setForm({ ...form, current_password: event.target.value })
+              }
+            />
+          </div>
+          <div className="setting-row">
+            <div>
+              <strong>Password baru</strong>
+              <span>Minimal 10 karakter</span>
+            </div>
+            <input
+              required
+              minLength="10"
+              type="password"
+              value={form.new_password}
+              onChange={(event) =>
+                setForm({ ...form, new_password: event.target.value })
+              }
+            />
+          </div>
+          {message && <p className="login-error">{message}</p>}
+          <button className="button primary" type="submit">
+            Ubah password
+          </button>
+        </form>
+        <button className="text-button" onClick={onLogout}>
+          Keluar dari akun
+        </button>
+      </section>
+    </>
+  );
+}
 
 function LoginView({ onLogin }) {
   const [form, setForm] = useState({ username: '', password: '' });
@@ -548,5 +1022,11 @@ function LoginView({ onLogin }) {
 function NotificationPanel({ notifications, onClose }) { return <div className="notification-panel"><div className="notification-header"><strong>Notifikasi</strong><button onClick={onClose}>Tutup</button></div>{notifications.length ? notifications.map((item) => <div className="notification-item" key={item.id}><span className={`notification-dot ${item.type}`} /><div><strong>{item.title}</strong><small>{item.detail}</small></div></div>) : <div className="notification-empty"><Bell size={18} /><span>Tidak ada notifikasi baru.</span></div>}</div>; }
 
 function ReceiptModal({ receipt, onClose, onPrint }) { return <Modal title="Nota transaksi" onClose={onClose}><ReceiptPrint receipt={receipt} onPrint={onPrint} /></Modal>; }
+
+function SettlementModal({ transaction, onClose, onSave }) {
+  const remaining = Math.max(0, Number(transaction.grand_total || 0) - Number(transaction.paid_amount || 0));
+  const [amount, setAmount] = useState(String(remaining));
+  return <Modal title="Pelunasan transaksi" onClose={onClose}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); onSave(amount); }}><div className="form-note"><CircleDollarSign size={15} /> {transaction.invoice_number} · Sisa tagihan {formatPrice(remaining)}</div><Field label="Nominal pembayaran" required><input autoFocus required type="number" min="1" max={remaining} value={amount} onChange={(event) => setAmount(event.target.value)} /></Field><div className="modal-actions"><button type="button" className="button ghost" onClick={onClose}>Batal</button><button type="submit" className="button primary">Simpan pelunasan</button></div></form></Modal>;
+}
 
 export default App;
