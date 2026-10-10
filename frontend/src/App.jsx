@@ -428,40 +428,423 @@ function TradeInForm({ onSave, onCancel }) { const [value, setValue] = useState(
 
 function ServiceViewMock() { const [activeStatus, setActiveStatus] = useState('Semua tiket'); const statuses = ['Semua tiket', 'Antrean', 'Pengecekan', 'Menunggu persetujuan', 'Proses servis', 'Selesai']; return <><section className="page-heading service-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> WORKSPACE SERVIS</div><h1>Semua perangkat, <em>terpantau.</em></h1><p>Kelola penerimaan, persetujuan, dan progres perbaikan dari satu tempat.</p></div><button className="button primary"><Plus size={17} /> Tiket servis baru</button></section><div className="service-summary"><div><span>Perlu perhatian</span><strong>2 tiket</strong><small>Menunggu persetujuan pelanggan</small></div><div><span>Dalam pengerjaan</span><strong>4 tiket</strong><small>Rata-rata selesai 1,8 hari</small></div><div><span>Selesai bulan ini</span><strong>38 tiket</strong><small><ArrowUpRight size={13} /> 8,2% dari bulan lalu</small></div><div className="service-illustration"><Sparkles size={22} /><span>Rapi hari ini,<br /><strong>tenang besok.</strong></span></div></div><section className="panel service-panel"><div className="panel-header"><div><h2>Tiket servis</h2><p>8 tiket aktif di semua cabang</p></div><div className="service-tools"><div className="search-field"><Search size={15} /><input placeholder="Cari tiket atau pelanggan..." /></div><button className="icon-button bordered"><Settings size={17} /></button></div></div><div className="status-tabs">{statuses.map((status) => <button className={activeStatus === status ? 'selected' : ''} key={status} onClick={() => setActiveStatus(status)}>{status}{status === 'Menunggu persetujuan' && <b>2</b>}</button>)}</div><div className="ticket-table"><div className="table-head"><span>TIKET</span><span>PELANGGAN & PERANGKAT</span><span>KELUHAN</span><span>STATUS</span><span>MASUK</span><span /></div>{serviceTickets.map((ticket) => <div className="ticket-row" key={ticket.id}><strong>{ticket.id}</strong><div className="ticket-customer"><div className="device-icon"><Laptop size={16} /></div><span><strong>{ticket.customer}</strong><small>{ticket.device}</small></span></div><span>{ticket.issue}</span><span className={`service-status ${ticket.status.replaceAll(' ', '-')}`}><i />{ticket.status}</span><span className="ticket-age">{ticket.age}</span><button className="row-arrow"><ArrowUpRight size={16} /></button></div>)}</div></section></>; }
 
-function ServiceView({ serviceTickets, setToast, onChangeStatus, onCancelStatus, canCreate, canManage, openServiceModal }) {
-  const [activeStatus, setActiveStatus] = useState('Semua tiket');
-  const statuses = ['Semua tiket', 'antrean', 'pengecekan', 'menunggu persetujuan', 'proses servis', 'selesai'];
-  const visibleTickets = serviceTickets.filter((ticket) => activeStatus === 'Semua tiket' || ticket.status === activeStatus);
-  return <>
-    <section className="page-heading service-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> WORKSPACE SERVIS</div><h1>Semua perangkat, <em>terpantau.</em></h1><p>Kelola penerimaan, persetujuan, dan progres perbaikan dari satu tempat.</p></div>{canCreate && <button className="button primary" onClick={openServiceModal}><Plus size={17} /> Tiket servis baru</button>}</section>
-    <section className="panel service-panel"><div className="panel-header"><div><h2>Tiket servis</h2><p>{serviceTickets.length} tiket dari database</p></div><div className="service-tools"><div className="search-field"><Search size={15} /><input placeholder="Cari tiket atau pelanggan..." /></div><button className="icon-button bordered" onClick={() => setToast('Filter servis: gunakan tab status atau cari tiket di kolom pencarian')}><Settings size={17} /></button></div></div><div className="status-tabs">{statuses.map((status) => <button className={activeStatus === status ? 'selected' : ''} key={status} onClick={() => setActiveStatus(status)}>{status}</button>)}</div><div className="ticket-table"><div className="table-head"><span>TIKET</span><span>PELANGGAN & PERANGKAT</span><span>KELUHAN</span><span>STATUS</span><span>MASUK</span><span /></div>{visibleTickets.map((ticket) => <div className="ticket-row" key={ticket.id}><strong>{ticket.id}</strong><div className="ticket-customer"><div className="device-icon"><Laptop size={16} /></div><span><strong>{ticket.customer}</strong><small>{ticket.device}</small></span></div><span>{ticket.issue}</span><button disabled={!canManage} className={`service-status ${ticket.status.replaceAll(' ', '-')}`} onClick={() => onChangeStatus?.(ticket.serviceId, ticket.status, ticket)}><i />{ticket.status}</button><span className="ticket-age">{ticket.age || 'Aktif'}</span><button disabled={!canManage} className="row-arrow" onClick={() => onChangeStatus?.(ticket.serviceId, ticket.status, ticket)}><ArrowUpRight size={16} /></button>{canManage && ticket.status === 'menunggu persetujuan' && <button className="cancel-ticket" onClick={() => onCancelStatus(ticket.serviceId)}>Cancel</button>}</div>)}</div></section>
-  </>;
+function ServiceView({
+  serviceTickets,
+  setToast,
+  onChangeStatus,
+  onCancelStatus,
+  canCreate,
+  canManage,
+  openServiceModal,
+}) {
+  const [activeStatus, setActiveStatus] = useState("Semua tiket");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const statuses = [
+    "Semua tiket",
+    "antrean",
+    "pengecekan",
+    "menunggu persetujuan",
+    "proses servis",
+    "selesai",
+  ];
+  const filteredTickets = serviceTickets.filter((ticket) => {
+    const matchesStatus = activeStatus === "Semua tiket" || ticket.status === activeStatus;
+    const query = search.trim().toLowerCase();
+    const matchesSearch = !query || `${ticket.id} ${ticket.customer} ${ticket.device} ${ticket.issue}`.toLowerCase().includes(query);
+    return matchesStatus && matchesSearch;
+  });
+  const pageCount = Math.max(1, Math.ceil(filteredTickets.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visibleTickets = filteredTickets.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const firstTicket = filteredTickets.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const lastTicket = Math.min(currentPage * pageSize, filteredTickets.length);
+  return (
+    <>
+      <section className="page-heading service-heading">
+        <div>
+          <div className="eyebrow">
+            <span className="eyebrow-line" /> WORKSPACE SERVIS
+          </div>
+          <h1>
+            Semua perangkat, <em>terpantau.</em>
+          </h1>
+          <p>
+            Kelola penerimaan, persetujuan, dan progres perbaikan dari satu
+            tempat.
+          </p>
+        </div>
+        {canCreate && (
+          <button className="button primary" onClick={openServiceModal}>
+            <Plus size={17} /> Tiket servis baru
+          </button>
+        )}
+      </section>
+      <section className="panel service-panel">
+        <div className="panel-header">
+          <div>
+            <h2>Tiket servis</h2>
+            <p>{filteredTickets.length} tiket · Menampilkan {firstTicket}–{lastTicket}</p>
+          </div>
+          <div className="service-tools">
+            <div className="search-field">
+              <Search size={15} />
+              <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Cari tiket atau pelanggan..." />
+            </div>
+            <button
+              className="icon-button bordered"
+              onClick={() =>
+                setToast(
+                  "Filter servis: gunakan tab status atau cari tiket di kolom pencarian",
+                )
+              }
+            >
+              <Settings size={17} />
+            </button>
+          </div>
+        </div>
+        <div className="status-tabs">
+          {statuses.map((status) => (
+            <button
+              className={activeStatus === status ? "selected" : ""}
+              key={status}
+              onClick={() => { setActiveStatus(status); setPage(1); }}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
+        <div className="ticket-table">
+          <div className="table-head">
+            <span>TIKET</span>
+            <span>PELANGGAN & PERANGKAT</span>
+            <span>KELUHAN</span>
+            <span>STATUS</span>
+            <span>MASUK</span>
+            <span />
+          </div>
+          {visibleTickets.map((ticket) => (
+            <div className="ticket-row" key={ticket.id}>
+              <strong>{ticket.id}</strong>
+              <div className="ticket-customer">
+                <div className="device-icon">
+                  <Laptop size={16} />
+                </div>
+                <span>
+                  <strong>{ticket.customer}</strong>
+                  <small>{ticket.device}</small>
+                </span>
+              </div>
+              <span>{ticket.issue}</span>
+              <button
+                disabled={!canManage}
+                className={`service-status ${ticket.status.replaceAll(" ", "-")}`}
+                onClick={() =>
+                  onChangeStatus?.(ticket.serviceId, ticket.status, ticket)
+                }
+              >
+                <i />
+                {ticket.status}
+              </button>
+              <span className="ticket-age">{ticket.age || "Aktif"}</span>
+              <button
+                disabled={!canManage}
+                className="row-arrow"
+                onClick={() =>
+                  onChangeStatus?.(ticket.serviceId, ticket.status, ticket)
+                }
+              >
+                <ArrowUpRight size={16} />
+              </button>
+              {canManage && ticket.status === "menunggu persetujuan" && (
+                <button
+                  className="cancel-ticket"
+                  onClick={() => onCancelStatus(ticket.serviceId)}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        {filteredTickets.length > 0 && (
+          <div className="inventory-pagination service-pagination">
+            <label className="inventory-page-size">
+              Tampilkan
+              <select aria-label="Tiket per halaman" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+              per halaman
+            </label>
+            <span className="inventory-page-status">Halaman {currentPage} dari {pageCount}</span>
+            <div className="inventory-page-buttons">
+              <button type="button" className="icon-button bordered" aria-label="Halaman tiket sebelumnya" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /></button>
+              <button type="button" className="icon-button bordered" aria-label="Halaman tiket berikutnya" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={16} /></button>
+            </div>
+          </div>
+        )}
+      </section>
+    </>
+  );
 }
 
 function Modal({ title, children, onClose }) {
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal-card"><div className="modal-header"><h2>{title}</h2><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={18} /></button></div>{children}</section></div>;
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <section className="modal-card">
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <button className="icon-button" onClick={onClose} aria-label="Tutup">
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
 }
 
 const specificationPresets = [
-  { key: 'processor', label: 'Processor / CPU', mode: 'single', options: ['Intel Core i3 6th Gen', 'Intel Core i5 8th Gen', 'Intel Core i5 10th Gen', 'Intel Core i7 8th Gen', 'Intel Core i7 10th Gen', 'AMD Ryzen 5 3500U', 'AMD Ryzen 7 3700U', 'Apple M1'] },
-  { key: 'gpu', label: 'Graphics Card / GPU', options: ['Intel Iris Xe Graphics', 'Intel HD 520', 'Intel HD 530', 'Nvidia GTX 970M 3GB GDDR5 192 bit', 'Nvidia GTX 960M 4GB GDDR5 128 bit', 'AMD Radeon Graphics', 'Apple M1 GPU Core'] },
-  { key: 'memory', label: 'RAM / Memory', mode: 'single', options: ['4GB DDR4', '8GB DDR4', '16GB DDR4', '16GB DDR4 3200MHz', '32GB LPDDR4 3733MHz', '16GB LPDDR4X 4266MHz'] },
-  { key: 'storage', label: 'Storage', options: ['256GB SSD NVMe', '512GB SSD NVMe', '1TB HDD', '256GB SSD', '240GB SSD', '256GB SSD Flash Storage', '512GB SSD Flash Storage'], note: true },
-  { key: 'display', label: 'Layar / Panel', options: ['14" Full HD IPS', '15.6" Full HD IPS 144Hz', 'Anti-glare', 'Touchscreen', '14" LED HD', '15.6" IPS 1080p', '13.3" IPS 900p', '13.3" Retina Display with TrueTone', '14" IPS 1200p'], note: true },
-  { key: 'port_io', label: 'Port / I/O', options: ['USB-A 3.0 x2', 'HDMI', 'HDMI / DP', 'Card Reader', 'SD Card', 'RJ45', 'DVD Drive', 'USB Type C with Thunderbolt 3 & DisplayPort', 'USB 3.0', 'SDXC Card', 'External Graphics Card Port', 'Thunderbolt 2', 'Charger Barrel', 'DP Type-C'], note: true },
-  { key: 'feature', label: 'Fitur', options: ['Backlit Keyboard', 'Fingerprint Reader', 'Wi-Fi 5', 'Bluetooth 5', 'Bluetooth', 'Webcam', 'RGB Backlit Keyboard', 'FHD Webcam', 'HD Webcam', 'Airdrop', 'Wi-Fi 6', 'Face Unlock'] },
-  { key: 'contents', label: 'Berisi / Kelengkapan', options: ['Charger', 'Tas', 'Dus', 'Buku manual', 'Adaptor original', 'Kabel power'] },
-  { key: 'unit_source', label: 'Sumber Unit', mode: 'single', options: ['Pribadi', 'Toko / reseller', 'Lelang', 'Ex-kantor', 'Ex-display', 'Import'] },
-  { key: 'physical', label: 'Fisik', fields: [{ key: 'description', label: 'Keterangan' }] },
-  { key: 'keyboard', label: 'Keyboard', fields: [{ key: 'description', label: 'Keterangan' }] },
-  { key: 'touchpad', label: 'Touchpad', options: ['Pointer normal', 'Precision Touchpad', 'Klik normal', 'Ada ghost click'], note: true },
-  { key: 'battery', label: 'Baterai', fields: [{ key: 'cycle_count', label: 'Cycle Count', type: 'number' }, { key: 'capacity', label: 'Capacity (mAh/Wh)' }, { key: 'health', label: 'Battery Health (%)', type: 'number' }] },
-  { key: 'benchmark', label: 'Benchmark', fields: [{ key: 'cinebench_r23', label: 'Cinebench R23 (Multi Core)' }, { key: 'superposition', label: 'Unigine Superposition (720p Low / 1080p Medium / 4K Optimized)' }, { key: 'valley', label: 'Unigine Valley (Basic)' }] },
-  { key: 'charger', label: 'Charger', fields: [{ key: 'voltage', label: 'Voltase', type: 'number' }, { key: 'ampere', label: 'Ampere', type: 'number' }, { key: 'watt', label: 'Watt', type: 'number', readOnly: true }] },
-  { key: 'audio', label: 'Audio', options: ['Speaker normal', 'Mic normal', 'Jack audio normal', 'Speaker pecah', 'Mic tidak berfungsi', 'Jack audio longgar'], note: true },
-  { key: 'camera', label: 'Camera', options: ['Kamera depan', 'Kamera belakang', 'Webcam normal', 'Webcam buram', 'Kamera tidak tersedia'] },
-  { key: 'security', label: 'Security', options: ['Fingerprint', 'Face Unlock', 'BIOS password clear', 'Activation Lock clear', 'MDM clear', 'iCloud sign-out'] },
-  { key: 'lock_status', label: 'Lock Status', options: ['BIOS unlock', 'Activation Lock unlock', 'MDM unlock', 'iCloud unlock', 'Ada password BIOS', 'Perlu verifikasi akun'] }
+  {
+    key: "processor",
+    label: "Processor / CPU",
+    mode: "single",
+    options: [
+      "Intel Core i3 6th Gen",
+      "Intel Core i5 8th Gen",
+      "Intel Core i5 10th Gen",
+      "Intel Core i7 8th Gen",
+      "Intel Core i7 10th Gen",
+      "AMD Ryzen 5 3500U",
+      "AMD Ryzen 7 3700U",
+      "Apple M1",
+    ],
+  },
+  {
+    key: "gpu",
+    label: "Graphics Card / GPU",
+    options: [
+      "Intel Iris Xe Graphics",
+      "Intel HD 520",
+      "Intel HD 530",
+      "Nvidia GTX 970M 3GB GDDR5 192 bit",
+      "Nvidia GTX 960M 4GB GDDR5 128 bit",
+      "AMD Radeon Graphics",
+      "Apple M1 GPU Core",
+    ],
+  },
+  {
+    key: "memory",
+    label: "RAM / Memory",
+    mode: "single",
+    options: [
+      "4GB DDR4",
+      "8GB DDR4",
+      "16GB DDR4",
+      "16GB DDR4 3200MHz",
+      "32GB LPDDR4 3733MHz",
+      "16GB LPDDR4X 4266MHz",
+    ],
+  },
+  {
+    key: "storage",
+    label: "Storage",
+    options: [
+      "256GB SSD NVMe",
+      "512GB SSD NVMe",
+      "1TB HDD",
+      "256GB SSD",
+      "240GB SSD",
+      "256GB SSD Flash Storage",
+      "512GB SSD Flash Storage",
+    ],
+    note: true,
+  },
+  {
+    key: "display",
+    label: "Layar / Panel",
+    options: [
+      '14" Full HD IPS',
+      '15.6" Full HD IPS 144Hz',
+      "Anti-glare",
+      "Touchscreen",
+      '14" LED HD',
+      '15.6" IPS 1080p',
+      '13.3" IPS 900p',
+      '13.3" Retina Display with TrueTone',
+      '14" IPS 1200p',
+    ],
+    note: true,
+  },
+  {
+    key: "port_io",
+    label: "Port / I/O",
+    options: [
+      "USB-A 3.0 x2",
+      "HDMI",
+      "HDMI / DP",
+      "Card Reader",
+      "SD Card",
+      "RJ45",
+      "DVD Drive",
+      "USB Type C with Thunderbolt 3 & DisplayPort",
+      "USB 3.0",
+      "SDXC Card",
+      "External Graphics Card Port",
+      "Thunderbolt 2",
+      "Charger Barrel",
+      "DP Type-C",
+    ],
+    note: true,
+  },
+  {
+    key: "feature",
+    label: "Fitur",
+    options: [
+      "Backlit Keyboard",
+      "Fingerprint Reader",
+      "Wi-Fi 5",
+      "Bluetooth 5",
+      "Bluetooth",
+      "Webcam",
+      "RGB Backlit Keyboard",
+      "FHD Webcam",
+      "HD Webcam",
+      "Airdrop",
+      "Wi-Fi 6",
+      "Face Unlock",
+    ],
+  },
+  {
+    key: "contents",
+    label: "Berisi / Kelengkapan",
+    options: [
+      "Charger",
+      "Tas",
+      "Dus",
+      "Buku manual",
+      "Adaptor original",
+      "Kabel power",
+    ],
+  },
+  {
+    key: "unit_source",
+    label: "Sumber Unit",
+    mode: "single",
+    options: [
+      "Pribadi",
+      "Toko / reseller",
+      "Lelang",
+      "Ex-kantor",
+      "Ex-display",
+      "Import",
+    ],
+  },
+  {
+    key: "physical",
+    label: "Fisik",
+    fields: [{ key: "description", label: "Keterangan" }],
+  },
+  {
+    key: "keyboard",
+    label: "Keyboard",
+    fields: [{ key: "description", label: "Keterangan" }],
+  },
+  {
+    key: "touchpad",
+    label: "Touchpad",
+    options: [
+      "Pointer normal",
+      "Precision Touchpad",
+      "Klik normal",
+      "Ada ghost click",
+    ],
+    note: true,
+  },
+  {
+    key: "battery",
+    label: "Baterai",
+    fields: [
+      { key: "cycle_count", label: "Cycle Count", type: "number" },
+      { key: "capacity", label: "Capacity (mAh/Wh)" },
+      { key: "health", label: "Battery Health (%)", type: "number" },
+    ],
+  },
+  {
+    key: "benchmark",
+    label: "Benchmark",
+    fields: [
+      { key: "cinebench_r23", label: "Cinebench R23 (Multi Core)" },
+      {
+        key: "superposition",
+        label: "Unigine Superposition (720p Low / 1080p Medium / 4K Optimized)",
+      },
+      { key: "valley", label: "Unigine Valley (Basic)" },
+    ],
+  },
+  {
+    key: "charger",
+    label: "Charger",
+    fields: [
+      { key: "voltage", label: "Voltase", type: "number" },
+      { key: "ampere", label: "Ampere", type: "number" },
+      { key: "watt", label: "Watt", type: "number", readOnly: true },
+    ],
+  },
+  {
+    key: "audio",
+    label: "Audio",
+    options: [
+      "Speaker normal",
+      "Mic normal",
+      "Jack audio normal",
+      "Speaker pecah",
+      "Mic tidak berfungsi",
+      "Jack audio longgar",
+    ],
+    note: true,
+  },
+  {
+    key: "camera",
+    label: "Camera",
+    options: [
+      "Kamera depan",
+      "Kamera belakang",
+      "Webcam normal",
+      "Webcam buram",
+      "Kamera tidak tersedia",
+    ],
+  },
+  {
+    key: "security",
+    label: "Security",
+    options: [
+      "Fingerprint",
+      "Face Unlock",
+      "BIOS password clear",
+      "Activation Lock clear",
+      "MDM clear",
+      "iCloud sign-out",
+    ],
+  },
+  {
+    key: "lock_status",
+    label: "Lock Status",
+    options: [
+      "BIOS unlock",
+      "Activation Lock unlock",
+      "MDM unlock",
+      "iCloud unlock",
+      "Ada password BIOS",
+      "Perlu verifikasi akun",
+    ],
+  },
 ];
 
 function ProductModal({ product, onClose, onSave }) {
