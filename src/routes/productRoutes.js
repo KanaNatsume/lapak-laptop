@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { createProduct, downloadProductImportTemplate, importProducts, listProducts, updateProduct } from '../controllers/productController.js';
+import { createProduct, deleteProduct, downloadProductImportTemplate, importProducts, listProducts, updateProduct } from '../controllers/productController.js';
 import { authorize } from '../auth.js';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -10,4 +10,5 @@ router.get('/products/import/template', authorize('admin', 'kasir'), downloadPro
 router.post('/products', authorize('admin', 'kasir'), createProduct);
 router.post('/products/import', authorize('admin', 'kasir'), upload.single('file'), asyncHandler(importProducts));
 router.put('/products/:id', authorize('admin', 'kasir'), updateProduct);
+router.delete('/products/:id', authorize('admin', 'kasir'), deleteProduct);
 export default router;

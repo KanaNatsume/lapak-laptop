@@ -103,6 +103,21 @@ test('product category: Gadget can be created and filtered', async () => {
   assert.ok(filtered.body.some((product) => product.id === created.body.id));
 });
 
+test('product deletion is allowed without transaction history and blocked when referenced', async () => {
+  const disposable = await request('/api/products', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ category: 'gadget', name: 'Disposable Gadget', stock: 1 }) });
+  const forbidden = await request(`/api/products/${disposable.body.id}`, { method: 'DELETE', token: tokens.technician });
+  assert.equal(forbidden.status, 403);
+  const removed = await request(`/api/products/${disposable.body.id}`, { method: 'DELETE', token: tokens.cashier });
+  assert.equal(removed.status, 204);
+  const missing = await request(`/api/products/${disposable.body.id}`, { method: 'DELETE', token: tokens.cashier });
+  assert.equal(missing.status, 404);
+
+  const referenced = await request('/api/products', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ category: 'laptop', name: 'Referenced Gadget', selling_price: 1000, stock: 1 }) });
+  await request('/api/transactions', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ customer_id: 1, items: [{ item_type: 'product', reference_id: referenced.body.id, qty: 1 }] }) });
+  const blocked = await request(`/api/products/${referenced.body.id}`, { method: 'DELETE', token: tokens.cashier });
+  assert.equal(blocked.status, 409);
+});
+
 test('transaction and stock: checkout reduces stock and rejects overselling', async () => {
   const created = await request('/api/products', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ category: 'laptop', name: 'Test Laptop', selling_price: 1000000, stock: 1 }) });
   assert.equal(created.status, 201);

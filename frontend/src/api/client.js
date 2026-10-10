@@ -29,6 +29,7 @@ export const payTransaction = (id, amount) => api(`/transactions/${id}/payment`,
 export const refundTransaction = (id, reason) => api(`/transactions/${id}/refund`, { method: 'POST', body: JSON.stringify({ reason }) });
 export const createProduct = (payload) => api('/products', { method: 'POST', body: JSON.stringify(payload) });
 export const updateProduct = (id, payload) => api(`/products/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+export const deleteProduct = (id) => api(`/products/${id}`, { method: 'DELETE' });
 export const importProducts = (file) => api('/products/import', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form; })() });
 export const downloadProductImportTemplate = async () => {
   const response = await fetch('/api/products/import/template', { credentials: 'include' });

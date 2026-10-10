@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import QRCode from 'qrcode';
-import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServiceAccess, getServiceOpeningReceipt, getServices, getSettings, getTransactions, importAroniumCustomers, importProducts, login, logout, payTransaction, refundTransaction as issueRefund, updateProduct, updateServiceStatus } from './api/client.js';
+import { changePassword, createCustomer, createProduct, createService, createTransaction, deleteProduct as deleteProductRecord, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServiceAccess, getServiceOpeningReceipt, getServices, getSettings, getTransactions, importAroniumCustomers, importProducts, login, logout, payTransaction, refundTransaction as issueRefund, updateProduct, updateServiceStatus } from './api/client.js';
 import ReceiptPrint from './components/ReceiptPrint.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
 import UserManagementPage from './components/UserManagementPage.jsx';
@@ -229,6 +229,18 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
     } catch (error) { setToast(error.message); }
   }
 
+  async function deleteInventoryProduct(product) {
+    if (!window.confirm(`Hapus ${product.name} dari inventori? Stok saat ini: ${product.stock}. Produk yang sudah memiliki riwayat transaksi tidak dapat dihapus.`)) return;
+    try {
+      await deleteProductRecord(product.id);
+      setProducts((current) => current.filter((item) => item.id !== product.id));
+      setInventoryProducts((current) => current.filter((item) => item.id !== product.id));
+      setToast(`${product.name} dihapus dari inventori`);
+    } catch (error) {
+      setToast(error.message || 'Produk gagal dihapus');
+    }
+  }
+
   async function importProductFile(file) {
     try {
       const result = await importProducts(file);
@@ -379,7 +391,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
           <CashierView {...{ cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, addScannedProduct, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount: todayTransactions.length, todaySalesTotal, activeServiceCount: activeServiceTickets.length, approvalServiceCount: approvalServiceTickets.length, openProductModal: () => { setEditingProduct(null); setModal('product'); }, openCustomerModal: () => setModal('customer') }} />
         ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
             : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} onRefund={setRefundTarget} />
-            : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onPrintLabel={can('admin', 'kasir') ? printProductLabel : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
+            : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onDeleteProduct={can('admin', 'kasir') ? deleteInventoryProduct : undefined} onPrintLabel={can('admin', 'kasir') ? printProductLabel : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
               : activePage === 'pelanggan' && can('admin', 'kasir') ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} onImportCustomers={can('admin', 'kasir') ? importAroniumCustomerFile : undefined} />
                 : activePage === 'kas' && can('admin', 'kasir') ? <CashLedgerPage onToast={setToast} />
                 : activePage === 'users' && can('admin') ? <UserManagementPage currentUser={authUser} onCurrentUserUpdated={(user) => { localStorage.setItem('pos_user', JSON.stringify(user)); onAuthUserUpdated(user); }} onToast={setToast} />
@@ -1253,6 +1265,7 @@ function InventoryView({
   products,
   openProductModal,
   onEditProduct,
+  onDeleteProduct,
   onPrintLabel,
   onImportProducts,
   onDownloadTemplate,
@@ -1441,6 +1454,7 @@ function InventoryView({
                 ) : (
                   <span />
                 )}
+                {onDeleteProduct && <button className="icon-button bordered danger-icon" onClick={() => onDeleteProduct(product)} aria-label={`Hapus ${product.name}`} title="Hapus produk"><Trash2 size={15} /></button>}
               </div>
             ))
           ) : (

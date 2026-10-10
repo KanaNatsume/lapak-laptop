@@ -40,6 +40,21 @@ export function updateProduct(request, response) {
   }
 }
 
+export function deleteProduct(request, response) {
+  const productId = Number(request.params.id);
+  if (!Number.isSafeInteger(productId) || productId <= 0) return response.status(404).json({ error: 'Produk tidak ditemukan' });
+  const remove = db.transaction(() => {
+    if (!db.prepare('SELECT id FROM products WHERE id = ?').get(productId)) return 'not_found';
+    if (db.prepare("SELECT id FROM transaction_items WHERE reference_id = ? AND item_type IN ('product', 'trade_in') LIMIT 1").get(productId)) return 'in_transaction';
+    db.prepare('DELETE FROM products WHERE id = ?').run(productId);
+    return 'deleted';
+  });
+  const result = remove();
+  if (result === 'not_found') return response.status(404).json({ error: 'Produk tidak ditemukan' });
+  if (result === 'in_transaction') return response.status(409).json({ error: 'Produk yang memiliki riwayat transaksi tidak dapat dihapus' });
+  response.status(204).end();
+}
+
 function importValue(row, names) {
   const key = Object.keys(row).find((candidate) => names.includes(candidate.toLowerCase().trim().replaceAll(' ', '_')));
   return key === undefined ? undefined : row[key];
