@@ -66,6 +66,7 @@ const currency = new Intl.NumberFormat('id-ID', { style: 'currency', currency: '
 const formatPrice = (value) => currency.format(value).replace('Rp', 'Rp ');
 const productCategoryLabel = (category) => ({ laptop: 'Laptop', aksesoris: 'Aksesoris', part_copotan: 'Part copotan', gadget: 'Gadget' }[category] || category);
 const formatSpecs = (specs = {}) => Object.entries(specs).filter(([key, value]) => key !== 'grade_condition' && !key.endsWith('_note') && value).flatMap(([, value]) => Array.isArray(value) ? value : typeof value === 'object' ? Object.values(value).filter(Boolean) : value).join(' · ') || 'Spesifikasi belum diisi';
+const shortInventorySpecs = (specs = {}) => [['CPU', specs.processor], ['GPU', specs.gpu], ['RAM', specs.memory], ['SSD', specs.storage], ['Layar', specs.display]].map(([label, value]) => [label, Array.isArray(value) ? value.filter(Boolean).join(', ') : typeof value === 'object' && value ? Object.values(value).filter(Boolean).join(', ') : String(value || '')]).filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`).join(' · ');
 const pageTitle = (page) => ({ kasir: 'Kasir baru', servis: 'Antrian servis', riwayat: 'Riwayat transaksi', inventori: 'Inventori', pelanggan: 'Pelanggan', kas: 'Kas toko', pengaturan: 'Pengaturan', users: 'Manajemen user', user: 'Profil pengguna' }[page] || 'Workspace');
 const escapePrintText = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 
@@ -1258,6 +1259,7 @@ function InventoryView({
 }) {
   const [category, setCategory] = useState("");
   const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
   const filteredProducts = products.filter((product) => {
@@ -1270,9 +1272,14 @@ function InventoryView({
         .includes(query);
     return matchesCategory && matchesSearch;
   });
-  const pageCount = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+  const orderedProducts = [...filteredProducts].sort((left, right) => {
+    if (!sortOrder) return 0;
+    const comparison = String(left.name || "").localeCompare(String(right.name || ""), "id", { sensitivity: "base" });
+    return sortOrder === "name-desc" ? -comparison : comparison;
+  });
+  const pageCount = Math.max(1, Math.ceil(orderedProducts.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageProducts = filteredProducts.slice(
+  const pageProducts = orderedProducts.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
@@ -1332,6 +1339,11 @@ function InventoryView({
                 />
               </>
             )}
+            <select className="inventory-sort" aria-label="Urutkan inventori berdasarkan nama" value={sortOrder} onChange={(event) => { setSortOrder(event.target.value); setPage(1); }}>
+              <option value="">Urutan default</option>
+              <option value="name-asc">Nama A–Z</option>
+              <option value="name-desc">Nama Z–A</option>
+            </select>
             <div className="search-field">
               <Search size={15} />
               <input
@@ -1401,8 +1413,12 @@ function InventoryView({
                   <small>
                     {product.brand} · {product.serial || "Tanpa serial"}
                   </small>
+                  {shortInventorySpecs(product.specs) && <small className="inventory-specs">{shortInventorySpecs(product.specs)}</small>}
                 </div>
-                <strong>{formatPrice(product.price)}</strong>
+                <div className="inventory-prices">
+                  <small>Modal <strong>{formatPrice(product.cost_price)}</strong></small>
+                  <small>Jual <strong>{formatPrice(product.price)}</strong></small>
+                </div>
                 <span className="stock-label">{product.stock} stok</span>
                 {onPrintLabel && (
                   <button
