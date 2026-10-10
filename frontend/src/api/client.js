@@ -33,6 +33,7 @@ export const downloadProductImportTemplate = async () => {
   const link = document.createElement('a'); link.href = URL.createObjectURL(await response.blob()); link.download = 'template-import-produk.xlsx'; link.click(); URL.revokeObjectURL(link.href);
 };
 export const createCustomer = (payload) => api('/customers', { method: 'POST', body: JSON.stringify(payload) });
+export const importAroniumCustomers = (file) => api('/customers/import/aronium', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form; })() });
 export const createTransaction = (payload) => api('/transactions', { method: 'POST', body: JSON.stringify(payload) });
 export const createService = (payload) => api('/services', { method: 'POST', body: JSON.stringify(payload) });
 export const updateServiceStatus = (id, payload) => api(`/services/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) });

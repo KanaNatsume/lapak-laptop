@@ -66,6 +66,7 @@ routes/transactionRoutes.js
 | PUT | `/api/products/:id` | Ubah harga, stok, atau detail |
 | GET | `/api/customers?search=` | Cari pelanggan berdasarkan nama/telepon |
 | POST | `/api/customers` | Buat pelanggan baru |
+| POST | `/api/customers/import/aronium` | Import pelanggan dari CSV Aronium (admin/kasir) |
 | GET | `/api/services?status=&search=` | Daftar tiket servis |
 | POST | `/api/services` | Terima perangkat servis |
 | PATCH | `/api/services/:id/status` | Pindah status dan catat biaya |
@@ -95,6 +96,8 @@ Endpoint checkout harus memproses header transaksi dan seluruh item dalam satu `
 
 ## Komponen SPA yang disarankan
 Import produk dari menu Inventori menyediakan template `.xlsx` yang sudah diformat. Kolom inti meliputi `category`, `name`, `brand`, `serial_number`, `cost_price`, `selling_price`, `stock`, dan `notes`; kolom atribut spesifikasi juga tersedia untuk processor, GPU, memory, storage, display, port, fitur, kelengkapan, sumber unit, fisik, keyboard, touchpad, baterai, benchmark, charger, audio, kamera, security, dan lock status. Untuk atribut pilihan ganda, pisahkan nilai dengan karakter `|`, misalnya `512GB SSD NVMe|1TB HDD`. Import divalidasi secara all-or-nothing dan serial number tetap harus unik.
+
+Import pelanggan Aronium tersedia di menu Pelanggan dan menerima CSV dengan header Aronium (`Name`, `Phone`, `StreetName`, `BuildingNumber`, `AdditionalStreetName`, `PlotIdentification`, `PostalCode`, `City`, `CitySubdivisionName`, `CountrySubentity`, dan `Country`). Kolom alamat digabung menjadi alamat pelanggan. Baris dengan `IsCustomer=0`, `IsEnabled=0`, atau tanpa nama diabaikan. Nomor telepon yang sama (termasuk variasi format `+62`/`0`) tidak diimpor dua kali; impor ulang aman.
 
 ```text
 src/frontend/

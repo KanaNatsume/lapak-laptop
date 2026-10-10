@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import QRCode from 'qrcode';
-import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServices, getSettings, getTransactions, importProducts, login, logout, payTransaction, updateProduct, updateServiceStatus } from './api/client.js';
+import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServices, getSettings, getTransactions, importAroniumCustomers, importProducts, login, logout, payTransaction, updateProduct, updateServiceStatus } from './api/client.js';
 import ReceiptPrint from './components/ReceiptPrint.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
 import UserManagementPage from './components/UserManagementPage.jsx';
@@ -13,6 +13,8 @@ import {
   ArrowUpRight,
   Bell,
   Camera,
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
   CircleDollarSign,
   ClipboardList,
@@ -250,6 +252,14 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
     } catch (error) { setToast(error.message); }
   }
 
+  async function importAroniumCustomerFile(file) {
+    try {
+      const result = await importAroniumCustomers(file);
+      if (result.customers.length) setCustomers((current) => [...result.customers, ...current]);
+      setToast(`${result.imported} pelanggan diimpor, ${result.skipped} duplikat dilewati, ${result.ignored} baris tidak diimpor`);
+    } catch (error) { setToast(error.message); }
+  }
+
   async function saveService(payload) {
     try {
       const saved = await createService(payload);
@@ -351,7 +361,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
         ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
             : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} />
             : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onPrintLabel={can('admin', 'kasir') ? printProductLabel : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
-              : activePage === 'pelanggan' ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} />
+              : activePage === 'pelanggan' ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} onImportCustomers={can('admin', 'kasir') ? importAroniumCustomerFile : undefined} />
                 : activePage === 'kas' && can('admin', 'kasir') ? <CashLedgerPage onToast={setToast} />
                 : activePage === 'users' && can('admin') ? <UserManagementPage currentUser={authUser} onCurrentUserUpdated={(user) => { localStorage.setItem('pos_user', JSON.stringify(user)); onAuthUserUpdated(user); }} onToast={setToast} />
                 : activePage === 'pengaturan' && can('admin') ? <SettingsPage onSaved={(message, settings) => { setToast(message); if (settings) setStoreSettings(settings); }} />
@@ -732,9 +742,20 @@ function InventoryView({
   onDownloadTemplate,
 }) {
   const [category, setCategory] = useState("");
-  const filteredProducts = products.filter(
-    (product) => !category || product.category === category,
-  );
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
+  const filteredProducts = products.filter((product) => {
+    const query = search.trim().toLowerCase();
+    const matchesCategory = !category || product.category === category;
+    const matchesSearch = !query || `${product.name} ${product.brand} ${product.serial || ""}`.toLowerCase().includes(query);
+    return matchesCategory && matchesSearch;
+  });
+  const pageCount = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageProducts = filteredProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const firstProduct = filteredProducts.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const lastProduct = Math.min(currentPage * pageSize, filteredProducts.length);
   const categoryCount = (value) =>
     products.filter((product) => product.category === value).length;
   const totalCost = filteredProducts.reduce(
@@ -760,7 +781,7 @@ function InventoryView({
           <div>
             <h2>Daftar inventori</h2>
             <p>
-              {filteredProducts.length} produk ditampilkan · Total modal{" "}
+              {filteredProducts.length} produk · Menampilkan {firstProduct}–{lastProduct} · Total modal{" "}
               <strong>{formatPrice(totalCost)}</strong>
             </p>
           </div>
@@ -788,45 +809,45 @@ function InventoryView({
             )}
             <div className="search-field">
               <Search size={15} />
-              <input placeholder="Cari produk atau serial..." />
+              <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Cari produk atau serial..." />
             </div>
           </div>
         </div>
         <div className="category-tabs inventory-category-tabs">
           <button
             className={!category ? "selected" : ""}
-            onClick={() => setCategory("")}
+            onClick={() => { setCategory(""); setPage(1); }}
           >
             Semua <span>{products.length}</span>
           </button>
           <button
             className={category === "Laptop" ? "selected" : ""}
-            onClick={() => setCategory("Laptop")}
+            onClick={() => { setCategory("Laptop"); setPage(1); }}
           >
             Laptop <span>{categoryCount("Laptop")}</span>
           </button>
           <button
             className={category === "Aksesoris" ? "selected" : ""}
-            onClick={() => setCategory("Aksesoris")}
+            onClick={() => { setCategory("Aksesoris"); setPage(1); }}
           >
             Aksesoris <span>{categoryCount("Aksesoris")}</span>
           </button>
           <button
             className={category === "Part copotan" ? "selected" : ""}
-            onClick={() => setCategory("Part copotan")}
+            onClick={() => { setCategory("Part copotan"); setPage(1); }}
           >
             Part <span>{categoryCount("Part copotan")}</span>
           </button>
           <button
             className={category === "Gadget" ? "selected" : ""}
-            onClick={() => setCategory("Gadget")}
+            onClick={() => { setCategory("Gadget"); setPage(1); }}
           >
             Gadget <span>{categoryCount("Gadget")}</span>
           </button>
         </div>
         <div className="history-list">
           {filteredProducts.length ? (
-            filteredProducts.map((product) => (
+            pageProducts.map((product) => (
               <div className="history-row inventory-row" key={product.id}>
                 <div>
                   <strong>{product.name}</strong>
@@ -867,12 +888,27 @@ function InventoryView({
             </div>
           )}
         </div>
+        <div className="inventory-pagination">
+          <label className="inventory-page-size">Tampilkan
+            <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+              <option value="8">8</option>
+              <option value="16">16</option>
+              <option value="32">32</option>
+            </select>
+            per halaman
+          </label>
+          <span className="inventory-page-status">Halaman {currentPage} dari {pageCount}</span>
+          <div className="inventory-page-buttons">
+            <button type="button" className="icon-button bordered" aria-label="Halaman sebelumnya" title="Sebelumnya" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /></button>
+            <button type="button" className="icon-button bordered" aria-label="Halaman berikutnya" title="Berikutnya" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={16} /></button>
+          </div>
+        </div>
       </section>
     </>
   );
 }
 
-function CustomerView({ customers, openCustomerModal }) {
+function CustomerView({ customers, openCustomerModal, onImportCustomers }) {
   return (
     <>
       <SectionHeading
@@ -886,12 +922,13 @@ function CustomerView({ customers, openCustomerModal }) {
         action={openCustomerModal ? "Tambah pelanggan" : undefined}
         onAction={openCustomerModal}
       />
-      <section className="panel table-panel">
+      <section className="panel table-panel customer-panel">
         <div className="panel-header">
           <div>
             <h2>Daftar pelanggan</h2>
             <p>{customers.length} kontak tersimpan</p>
           </div>
+          {onImportCustomers && <div className="customer-import-actions"><label className="button ghost" htmlFor="aronium-customer-import"><FileSpreadsheet size={15} /> Import Aronium CSV</label><input id="aronium-customer-import" hidden type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportCustomers(file); event.target.value = ''; }} /></div>}
         </div>
         <div className="history-list">
           {customers.length ? (

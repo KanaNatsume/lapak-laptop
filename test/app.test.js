@@ -114,3 +114,40 @@ test('product import: accepts the simple CSV template and creates products atomi
   assert.equal(specs.physical.description, 'Ada lecet ringan');
   assert.equal(specs.battery.health, '88');
 });
+
+test('product import: parses Indonesian rupiah-formatted prices', async () => {
+  const form = new FormData();
+  form.append('file', new Blob(['category,name,brand,serial_number,cost_price,selling_price,stock\nlaptop,Formatted Price Laptop,Lenovo,FORMAT-001,"Rp 5.000.000","Rp 6.500.000",1\n'], { type: 'text/csv' }), 'formatted-prices.csv');
+  const imported = await request('/api/products/import', { method: 'POST', token: tokens.cashier, body: form });
+  assert.equal(imported.status, 201);
+  const product = db.prepare('SELECT cost_price, selling_price FROM products WHERE serial_number = ?').get('FORMAT-001');
+  assert.equal(product.cost_price, 5000000);
+  assert.equal(product.selling_price, 6500000);
+});
+
+test('Aronium customer import maps addresses and safely skips duplicates/non-customers', async () => {
+  const csv = [
+    'Name,Code,TaxNumber,StreetName,BuildingNumber,AdditionalStreetName,PlotIdentification,PostalCode,City,CitySubdivisionName,CountrySubentity,Country,Email,Phone,IsEnabled,IsCustomer,IsTaxExempt',
+    'Aronium Import Test,,,"Jalan Melati, No. 5",,Blok A,,,Bandung,,,,test@example.com,081234567890,1,1,0',
+    'Aronium Duplicate,,,"Alamat berbeda",,,,,,,,,,0812-3456-7890,1,1,0',
+    'Aronium Disabled,,,,,,,,,,,,,081234567891,0,1,0',
+    'Aronium Supplier,,,,,,,,,,,,,081234567892,1,0,0'
+  ].join('\n');
+  const upload = async () => {
+    const form = new FormData();
+    form.append('file', new Blob([csv], { type: 'text/csv' }), 'customers.csv');
+    return request('/api/customers/import/aronium', { method: 'POST', token: tokens.cashier, body: form });
+  };
+  const first = await upload();
+  assert.equal(first.status, 201);
+  assert.equal(first.body.imported, 1);
+  assert.equal(first.body.skipped, 1);
+  assert.equal(first.body.ignored, 2);
+  const importedCustomer = db.prepare('SELECT * FROM customers WHERE phone = ?').get('081234567890');
+  assert.equal(importedCustomer.name, 'Aronium Import Test');
+  assert.match(importedCustomer.address, /Jalan Melati, No\. 5/);
+  const second = await upload();
+  assert.equal(second.status, 200);
+  assert.equal(second.body.imported, 0);
+  assert.equal(second.body.skipped, 2);
+});

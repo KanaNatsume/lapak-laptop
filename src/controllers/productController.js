@@ -45,6 +45,37 @@ function importValue(row, names) {
   return key === undefined ? undefined : row[key];
 }
 
+function parseImportInteger(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return 0;
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? value : Number.NaN;
+  if (typeof value === 'object') {
+    if ('result' in value) return parseImportInteger(value.result);
+    if ('text' in value) return parseImportInteger(value.text);
+  }
+  let text = String(value).trim().replace(/^(?:rp|idr)\s*/i, '').replace(/[\s\u00a0]/g, '');
+  if (!/^[+-]?[\d.,]+$/.test(text)) return Number.NaN;
+  const sign = text.startsWith('-') ? '-' : text.startsWith('+') ? '+' : '';
+  text = text.replace(/^[+-]/, '');
+  const comma = text.lastIndexOf(',');
+  const dot = text.lastIndexOf('.');
+  if (comma >= 0 && dot >= 0) {
+    const decimalSeparator = comma > dot ? ',' : '.';
+    const groupingSeparator = decimalSeparator === ',' ? '.' : ',';
+    text = text.split(groupingSeparator).join('');
+    if (decimalSeparator === ',') text = text.replace(',', '.');
+  } else if (comma >= 0 || dot >= 0) {
+    const separator = comma >= 0 ? ',' : '.';
+    const parts = text.split(separator);
+    const grouped = parts.length > 2
+      ? parts.slice(1).every((part) => part.length === 3)
+      : parts[1]?.length === 3;
+    if (grouped) text = parts.join('');
+    else if (separator === ',') text = text.replace(',', '.');
+  }
+  const parsed = Number(`${sign}${text}`);
+  return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
+}
+
 function parseCsv(buffer) {
   const lines = buffer.toString('utf8').replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim());
   const split = (line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((value) => value.trim().replace(/^"|"$/g, '').replaceAll('""', '"'));
@@ -128,14 +159,15 @@ export async function importProducts(request, response) {
     const category = normalizeCategory(importValue(row, ['category', 'kategori']));
     const brand = String(importValue(row, ['brand', 'merek']) || '').trim();
     const serialNumber = String(importValue(row, ['serial_number', 'serial', 'serial_number_produk']) || '').trim() || null;
-    const costPrice = Number(importValue(row, ['cost_price', 'harga_modal', 'modal']) || 0);
-    const sellingPrice = Number(importValue(row, ['selling_price', 'harga_jual', 'harga']) || 0);
-    const stock = Number(importValue(row, ['stock', 'stok', 'jumlah']) || 0);
+    const costPrice = parseImportInteger(importValue(row, ['cost_price', 'harga_modal', 'modal']));
+    const sellingPrice = parseImportInteger(importValue(row, ['selling_price', 'harga_jual', 'harga']));
+    const stock = parseImportInteger(importValue(row, ['stock', 'stok', 'jumlah']));
     const specs = readSpecifications(row);
     if (!name) errors.push(`Baris ${line}: nama produk wajib diisi`);
     if (!['laptop', 'aksesoris', 'part_copotan', 'gadget'].includes(category)) errors.push(`Baris ${line}: kategori harus laptop, aksesoris, part_copotan, atau gadget`);
-    if (!Number.isInteger(costPrice) || costPrice < 0 || !Number.isInteger(sellingPrice) || sellingPrice < 0) errors.push(`Baris ${line}: harga harus bilangan bulat >= 0`);
-    if (!Number.isInteger(stock) || stock < 0) errors.push(`Baris ${line}: stok harus bilangan bulat >= 0`);
+    if (!Number.isSafeInteger(costPrice) || costPrice < 0) errors.push(`Baris ${line}: Harga modal harus angka bulat >= 0, contoh 5000000 atau 5.000.000`);
+    if (!Number.isSafeInteger(sellingPrice) || sellingPrice < 0) errors.push(`Baris ${line}: Harga jual harus angka bulat >= 0, contoh 6500000 atau Rp 6.500.000`);
+    if (!Number.isSafeInteger(stock) || stock < 0) errors.push(`Baris ${line}: Stok harus angka bulat >= 0`);
     return { line, category, name, brand, serialNumber, specs, costPrice, sellingPrice, stock, notes: String(importValue(row, ['notes', 'catatan']) || '').trim() };
   });
   const serials = new Set();

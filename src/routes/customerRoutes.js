@@ -1,7 +1,11 @@
 import { Router } from 'express';
-import { createCustomer, listCustomers } from '../controllers/customerController.js';
+import multer from 'multer';
+import { createCustomer, importAroniumCustomers, listCustomers } from '../controllers/customerController.js';
 import { authorize } from '../auth.js';
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const asyncHandler = (handler) => (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 router.get('/customers', authorize('admin', 'kasir', 'teknisi'), listCustomers);
 router.post('/customers', authorize('admin', 'kasir'), createCustomer);
+router.post('/customers/import/aronium', authorize('admin', 'kasir'), upload.single('file'), asyncHandler(importAroniumCustomers));
 export default router;
