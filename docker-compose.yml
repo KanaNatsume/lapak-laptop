@@ -10,13 +10,17 @@ services:
       PORT: 3000
       DATABASE_PATH: /var/lib/pos-laptop/data/pos.sqlite
       BACKUP_DIR: /var/lib/pos-laptop/backups
+      BACKUP_MIRROR_DIR: /var/backups/pos-laptop
       BACKUP_INTERVAL_MS: ${BACKUP_INTERVAL_MS:-86400000}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      SERVICE_PIN_ENCRYPTION_KEY: ${SERVICE_PIN_ENCRYPTION_KEY:-}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?Set DEFAULT_ADMIN_PASSWORD in .env}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      TRUST_CLOUDFLARE_IP_HEADER: "true"
     volumes:
       - pos_data:/var/lib/pos-laptop/data
       - pos_backups:/var/lib/pos-laptop/backups
+      - ${BACKUP_MIRROR_HOST_PATH:-pos_backup_mirror}:/var/backups/pos-laptop
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
@@ -36,3 +40,4 @@ services:
 volumes:
   pos_data:
   pos_backups:
+  pos_backup_mirror:

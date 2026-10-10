@@ -18,6 +18,7 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
     "lucide-react": "^0.468.0",
     "multer": "^2.4.0",
     "qrcode": "^1.5.4",
@@ -31,5 +32,10 @@
     "supertest": "^7.3.1",
     "tailwindcss": "^4.1.13",
     "vite": "^6.0.5"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

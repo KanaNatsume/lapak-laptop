@@ -15,6 +15,8 @@ API berjalan di `http://localhost:3000`, sedangkan SPA tersedia di `http://local
 
 Backup SQLite dibuat otomatis saat server mulai dan setiap `BACKUP_INTERVAL_MS` (default 24 jam) ke `BACKUP_DIR` (default `data/backups`). File backup yang lebih lama dari `BACKUP_RETENTION_DAYS` (default 30 hari) dihapus. Salin backup ke lokasi terpisah atau storage eksternal untuk perlindungan terhadap kerusakan disk.
 
+PIN perangkat servis dienkripsi AES-256-GCM sebelum disimpan. Set `SERVICE_PIN_ENCRYPTION_KEY` ke 64 karakter hex yang kuat dan simpan salinannya di password manager/secret store; jika kosong, aplikasi membuat file `${DATABASE_PATH}.pin-key`. Key ini **tidak ikut di backup SQLite** dan harus dipulihkan bersama database, disimpan terpisah dengan akses terbatas. Jika key hilang, PIN tersimpan tidak dapat didekripsi.
+
 ## Menjalankan dengan Docker
 
 Docker Compose menyimpan database dan backup pada volume persisten terpisah:
@@ -29,7 +31,11 @@ docker compose logs -f pos-laptop
 
 Aplikasi pada deployment Tunnel tidak membuka port 3000 ke host; akses publik menggunakan hostname Cloudflare. Hentikan container tanpa menghapus data dengan `docker compose down`; jangan gunakan `docker compose down -v` kecuali memang ingin menghapus database dan backup. Untuk deployment tanpa IP publik, gunakan service `cloudflared` pada Compose: buat tunnel di Cloudflare Zero Trust, set `CLOUDFLARE_TUNNEL_TOKEN` di `.env`, lalu arahkan public hostname ke service `http://pos-laptop:3000` (nama service Docker, bukan `localhost`). Set `CORS_ORIGIN` ke URL HTTPS public hostname. File Docker tersedia di `Dockerfile`, `docker-compose.yml`, dan `.dockerignore`.
 
-Login awal untuk instalasi baru: username `admin`, password mengikuti `DEFAULT_ADMIN_PASSWORD` di `.env`. Ganti password dari halaman profil setelah login. Session disimpan di SQLite dengan expiry 8 jam dan seluruh endpoint operasional memerlukan `Authorization: Bearer <token>`.
+Untuk menaruh salinan backup pada disk/NAS eksternal, set `BACKUP_MIRROR_HOST_PATH` ke direktori host yang sudah ter-mount dan dapat ditulis UID `10001`; Compose akan membuat salinan kedua di sana. Nilai default memakai Docker volume `pos_backup_mirror` dan tetap berada pada host yang sama. Simpan `SERVICE_PIN_ENCRYPTION_KEY` atau file `.pin-key` secara terpisah dan aman untuk pemulihan.
+
+Untuk memulihkan PIN servis pada server baru, set `SERVICE_PIN_ENCRYPTION_KEY` yang sama sebelum aplikasi dijalankan. Simpan backup database dan key secara terpisah; jangan taruh key di repository atau pada folder backup yang sama tanpa enkripsi.
+
+Login awal untuk instalasi baru: username `admin`, password mengikuti `DEFAULT_ADMIN_PASSWORD` di `.env`. Ganti password dari halaman profil setelah login. Session disimpan di SQLite dengan expiry 8 jam; browser menerima cookie `HttpOnly` (dan `Secure` saat `NODE_ENV=production`) dan tidak menyimpan bearer token di `localStorage`. Request perubahan data memeriksa origin yang diizinkan. Di Docker Tunnel, rate limit login menggunakan IP client Cloudflare; service aplikasi tidak membuka port langsung ke host.
 
 ## Struktur backend
 

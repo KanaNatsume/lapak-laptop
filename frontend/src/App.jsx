@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import QRCode from 'qrcode';
-import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServices, getSettings, getTransactions, importAroniumCustomers, importProducts, login, logout, payTransaction, updateProduct, updateServiceStatus } from './api/client.js';
+import { changePassword, createCustomer, createProduct, createService, createTransaction, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServiceAccess, getServiceOpeningReceipt, getServices, getSettings, getTransactions, importAroniumCustomers, importProducts, login, logout, payTransaction, updateProduct, updateServiceStatus } from './api/client.js';
 import ReceiptPrint from './components/ReceiptPrint.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
 import UserManagementPage from './components/UserManagementPage.jsx';
@@ -18,6 +18,8 @@ import {
   ChevronDown,
   CircleDollarSign,
   ClipboardList,
+  Eye,
+  EyeOff,
   QrCode,
   Laptop,
   FileSpreadsheet,
@@ -87,7 +89,8 @@ async function printProductLabel(product) {
   try {
     const code = `POS:${product.id}`;
     const qr = await QRCode.toDataURL(code, { width: 240, margin: 1, errorCorrectionLevel: 'M' });
-    printWindow.document.write(`<html><head><title>Label ${escapePrintText(product.name)}</title><style>@page{size:50mm 30mm;margin:0}*{box-sizing:border-box}body{width:50mm;height:30mm;margin:0;padding:2mm;font:7pt Arial,sans-serif;display:flex;align-items:center;gap:2mm;color:#111}.qr{width:24mm;height:24mm}.info{min-width:0;flex:1}.name{font-size:8pt;font-weight:bold;max-height:10mm;overflow:hidden}.brand{margin-top:1mm;color:#444}.price{margin-top:2mm;font-size:9pt;font-weight:bold}.code{margin-top:1mm;font-size:6pt}</style></head><body><img class="qr" src="${qr}"/><div class="info"><div class="name">${escapePrintText(product.name)}</div><div class="brand">${escapePrintText(product.brand || '')}</div><div class="price">${formatPrice(product.selling_price ?? product.price)}</div><div class="code">${escapePrintText(code)}</div></div><script>window.onload=()=>window.print()</script></body></html>`);
+    printWindow.document.write(`<html><head><title>Label ${escapePrintText(product.name)}</title><style>@page{size:50mm 30mm;margin:0}*{box-sizing:border-box}body{width:50mm;height:30mm;margin:0;padding:2mm;font:7pt Arial,sans-serif;display:flex;align-items:center;gap:2mm;color:#111}.qr{width:24mm;height:24mm}.info{min-width:0;flex:1}.name{font-size:8pt;font-weight:bold;max-height:10mm;overflow:hidden}.brand{margin-top:1mm;color:#444}.price{margin-top:2mm;font-size:9pt;font-weight:bold}.code{margin-top:1mm;font-size:6pt}</style></head><body><img class="qr" src="${qr}"/><div class="info"><div class="name">${escapePrintText(product.name)}</div><div class="brand">${escapePrintText(product.brand || '')}</div><div class="price">${formatPrice(product.selling_price ?? product.price)}</div><div class="code">${escapePrintText(code)}</div></div></body></html>`);
+    printWindow.onload = () => printWindow.print();
     printWindow.document.close();
   } catch (error) {
     printWindow.close();
@@ -134,7 +137,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   const [serviceQuote, setServiceQuote] = useState(null);
 
   useEffect(() => {
-    Promise.all([getProducts(), getProducts('', true), getCustomers(), getServices(), getTransactions(), getNotifications()]).then(([loadedProducts, loadedInventory, loadedCustomers, loadedServices, loadedTransactions, loadedNotifications]) => {
+    Promise.all([getProducts(), getProducts('', true), can('admin', 'kasir') ? getCustomers() : Promise.resolve([]), getServices(), can('admin', 'kasir') ? getTransactions() : Promise.resolve([]), getNotifications()]).then(([loadedProducts, loadedInventory, loadedCustomers, loadedServices, loadedTransactions, loadedNotifications]) => {
       const normalizedProducts = loadedProducts.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: productCategoryLabel(item.category), spec: formatSpecs(item.specs) }));
       const normalizedInventory = loadedInventory.map((item) => ({ ...item, price: item.selling_price, grade: item.grade_condition, serial: item.serial_number || '', category: productCategoryLabel(item.category), spec: formatSpecs(item.specs) }));
       setProducts(normalizedProducts);
@@ -263,12 +266,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   async function saveService(payload) {
     try {
       const saved = await createService(payload);
-      const estimatedCost = Number(saved.estimated_cost || payload.estimated_cost || 0);
-      const downPayment = Number(saved.down_payment || payload.down_payment || 0);
-      const openingTotal = Math.max(estimatedCost, downPayment);
-      const openingPaymentStatus = downPayment <= 0 ? 'bayar_nanti' : downPayment >= openingTotal ? 'lunas' : 'dp';
-      const openingTransaction = await createTransaction({ customer_id: saved.customer_id, transaction_type: 'servis', transaction_stage: 'opening', paid_amount: downPayment, payment_method: 'cash', payment_status: openingPaymentStatus, record_cash: false, notes: 'Nota awal servis', items: [{ item_type: 'service', reference_id: saved.id, name: `Servis ${saved.device_name}`, price: openingTotal, qty: 1 }] });
-      const openingReceipt = await getReceipt(openingTransaction.id);
+      const openingReceipt = await getServiceOpeningReceipt(saved.id);
       setReceipt(openingReceipt); printReceipt(openingReceipt);
       setServiceTickets((current) => [{ ...saved, serviceId: saved.id, customerId: saved.customer_id, id: saved.ticket_number, customer: customer?.name || 'Pelanggan', device: saved.device_name, issue: saved.issues, status: saved.status.replaceAll('_', ' ') }, ...current]); setModal(null); setToast(`Tiket ${saved.ticket_number} berhasil dibuat dan nota awal dicetak`);
     } catch (error) { setToast(error.message); }
@@ -340,7 +338,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
           {can('admin', 'kasir') && <NavButton icon={<ClipboardList size={18} />} label="Riwayat transaksi" active={activePage === 'riwayat'} onClick={() => setActivePage('riwayat')} />}
           <p className="nav-label secondary-label">Kelola</p>
           {can('admin', 'kasir', 'teknisi') && <NavButton icon={<ShoppingBag size={18} />} label="Inventori" active={activePage === 'inventori'} onClick={() => setActivePage('inventori')} />}
-          {can('admin', 'kasir', 'teknisi') && <NavButton icon={<UsersRound size={18} />} label="Pelanggan" active={activePage === 'pelanggan'} onClick={() => setActivePage('pelanggan')} />}
+          {can('admin', 'kasir') && <NavButton icon={<UsersRound size={18} />} label="Pelanggan" active={activePage === 'pelanggan'} onClick={() => setActivePage('pelanggan')} />}
           {can('admin', 'kasir') && <NavButton icon={<CircleDollarSign size={18} />} label="Kas toko" active={activePage === 'kas'} onClick={() => setActivePage('kas')} />}
           {can('admin') && <NavButton icon={<UsersRound size={18} />} label="User & akses" active={activePage === 'users'} onClick={() => setActivePage('users')} />}
         </nav>
@@ -361,7 +359,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
         ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
             : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} />
             : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onPrintLabel={can('admin', 'kasir') ? printProductLabel : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
-              : activePage === 'pelanggan' ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} onImportCustomers={can('admin', 'kasir') ? importAroniumCustomerFile : undefined} />
+              : activePage === 'pelanggan' && can('admin', 'kasir') ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} onImportCustomers={can('admin', 'kasir') ? importAroniumCustomerFile : undefined} />
                 : activePage === 'kas' && can('admin', 'kasir') ? <CashLedgerPage onToast={setToast} />
                 : activePage === 'users' && can('admin') ? <UserManagementPage currentUser={authUser} onCurrentUserUpdated={(user) => { localStorage.setItem('pos_user', JSON.stringify(user)); onAuthUserUpdated(user); }} onToast={setToast} />
                 : activePage === 'pengaturan' && can('admin') ? <SettingsPage onSaved={(message, settings) => { setToast(message); if (settings) setStoreSettings(settings); }} />
@@ -441,6 +439,7 @@ function ServiceView({
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [revealedPins, setRevealedPins] = useState({});
   const statuses = [
     "Semua tiket",
     "antrean",
@@ -460,6 +459,16 @@ function ServiceView({
   const visibleTickets = filteredTickets.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const firstTicket = filteredTickets.length ? (currentPage - 1) * pageSize + 1 : 0;
   const lastTicket = Math.min(currentPage * pageSize, filteredTickets.length);
+  async function toggleServicePin(ticket) {
+    if (Object.hasOwn(revealedPins, ticket.id)) {
+      setRevealedPins((current) => { const next = { ...current }; delete next[ticket.id]; return next; });
+      return;
+    }
+    try {
+      const result = await getServiceAccess(ticket.serviceId);
+      setRevealedPins((current) => ({ ...current, [ticket.id]: result.password_pin || '(tidak ada PIN)' }));
+    } catch (error) { setToast(error.message); }
+  }
   return (
     <>
       <section className="page-heading service-heading">
@@ -534,6 +543,7 @@ function ServiceView({
                 <span>
                   <strong>{ticket.customer}</strong>
                   <small>{ticket.device}</small>
+                  {canManage && <button type="button" className="service-pin-toggle" onClick={() => toggleServicePin(ticket)} title={Object.hasOwn(revealedPins, ticket.id) ? "Sembunyikan PIN" : "Lihat PIN perangkat"}>{Object.hasOwn(revealedPins, ticket.id) ? <><EyeOff size={13} /> {revealedPins[ticket.id]}</> : <><Eye size={13} /> Lihat PIN</>}</button>}
                 </span>
               </div>
               <span>{ticket.issue}</span>
@@ -1119,7 +1129,101 @@ function SerialScanner({ onDetected }) {
 function SectionHeading({ eyebrow, title, description, action, onAction }) { return <section className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> {eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action && <button className="button primary" onClick={onAction}><Plus size={17} /> {action}</button>}</section>; }
 
 function TransactionHistory({ transactions, onPrint, onSettle }) {
-  return <><SectionHeading eyebrow="CATATAN PENJUALAN" title={<>Semua transaksi, <em>tersimpan.</em></>} description="Lihat invoice, cetak ulang nota, atau terima pelunasan." /><section className="panel table-panel"><div className="panel-header"><div><h2>Riwayat transaksi</h2><p>{transactions.length} transaksi terbaru</p></div><div className="search-field"><Search size={15} /><input placeholder="Cari invoice..." /></div></div><div className="history-list">{transactions.length ? transactions.map((transaction) => <div className="history-row" key={transaction.id}><div><strong>{transaction.invoice_number}</strong><small>{transaction.created_at}</small></div><span>{transaction.transaction_type} · {transaction.payment_status}</span><strong>{formatPrice(transaction.grand_total)}</strong><div className="history-actions">{transaction.payment_status !== 'lunas' && Number(transaction.grand_total || 0) > Number(transaction.paid_amount || 0) && <button type="button" className="settle-button" onClick={() => onSettle(transaction)}>Pelunasan</button>}<button type="button" className="icon-button bordered" onClick={() => onPrint(transaction)} aria-label={`Cetak ${transaction.invoice_number}`}><Printer size={16} /></button></div></div>) : <div className="empty-state"><ClipboardList size={30} /><strong>Belum ada transaksi</strong><span>Transaksi yang selesai akan muncul di sini.</span></div>}</div></section></>;
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const filteredTransactions = transactions.filter((transaction) => `${transaction.invoice_number} ${transaction.transaction_type} ${transaction.payment_status} ${transaction.created_at}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const pageCount = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visibleTransactions = filteredTransactions.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const firstTransaction = filteredTransactions.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const lastTransaction = Math.min(currentPage * pageSize, filteredTransactions.length);
+  return (
+    <>
+      <SectionHeading
+        eyebrow="CATATAN PENJUALAN"
+        title={
+          <>
+            Semua transaksi, <em>tersimpan.</em>
+          </>
+        }
+        description="Lihat invoice, cetak ulang nota, atau terima pelunasan."
+      />
+      <section className="panel table-panel">
+        <div className="panel-header">
+          <div>
+            <h2>Riwayat transaksi</h2>
+            <p>{filteredTransactions.length} transaksi · Menampilkan {firstTransaction}–{lastTransaction}</p>
+          </div>
+          <div className="search-field">
+            <Search size={15} />
+            <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Cari invoice..." />
+          </div>
+        </div>
+        <div className="history-list">
+          {visibleTransactions.length ? (
+            visibleTransactions.map((transaction) => (
+              <div className="history-row" key={transaction.id}>
+                <div>
+                  <strong>{transaction.invoice_number}</strong>
+                  <small>{transaction.created_at}</small>
+                </div>
+                <span>
+                  {transaction.transaction_type} · {transaction.payment_status}
+                </span>
+                <strong>{formatPrice(transaction.grand_total)}</strong>
+                <div className="history-actions">
+                  {transaction.payment_status !== "lunas" &&
+                    Number(transaction.grand_total || 0) >
+                      Number(transaction.paid_amount || 0) && (
+                      <button
+                        type="button"
+                        className="settle-button"
+                        onClick={() => onSettle(transaction)}
+                      >
+                        Pelunasan
+                      </button>
+                    )}
+                  <button
+                    type="button"
+                    className="icon-button bordered"
+                    onClick={() => onPrint(transaction)}
+                    aria-label={`Cetak ${transaction.invoice_number}`}
+                  >
+                    <Printer size={16} />
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">
+              <ClipboardList size={30} />
+              <strong>{search ? "Transaksi tidak ditemukan" : "Belum ada transaksi"}</strong>
+              <span>{search ? "Coba kata pencarian lain." : "Transaksi yang selesai akan muncul di sini."}</span>
+            </div>
+          )}
+        </div>
+        {filteredTransactions.length > 0 && (
+          <div className="inventory-pagination transaction-pagination">
+            <label className="inventory-page-size">
+              Tampilkan
+              <select aria-label="Transaksi per halaman" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+              per halaman
+            </label>
+            <span className="inventory-page-status">Halaman {currentPage} dari {pageCount}</span>
+            <div className="inventory-page-buttons">
+              <button type="button" className="icon-button bordered" aria-label="Halaman transaksi sebelumnya" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /></button>
+              <button type="button" className="icon-button bordered" aria-label="Halaman transaksi berikutnya" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={16} /></button>
+            </div>
+          </div>
+        )}
+      </section>
+    </>
+  );
 }
 
 function InventoryView({
@@ -1137,13 +1241,22 @@ function InventoryView({
   const filteredProducts = products.filter((product) => {
     const query = search.trim().toLowerCase();
     const matchesCategory = !category || product.category === category;
-    const matchesSearch = !query || `${product.name} ${product.brand} ${product.serial || ""}`.toLowerCase().includes(query);
+    const matchesSearch =
+      !query ||
+      `${product.name} ${product.brand} ${product.serial || ""}`
+        .toLowerCase()
+        .includes(query);
     return matchesCategory && matchesSearch;
   });
   const pageCount = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageProducts = filteredProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const firstProduct = filteredProducts.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const pageProducts = filteredProducts.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  const firstProduct = filteredProducts.length
+    ? (currentPage - 1) * pageSize + 1
+    : 0;
   const lastProduct = Math.min(currentPage * pageSize, filteredProducts.length);
   const categoryCount = (value) =>
     products.filter((product) => product.category === value).length;
@@ -1170,7 +1283,8 @@ function InventoryView({
           <div>
             <h2>Daftar inventori</h2>
             <p>
-              {filteredProducts.length} produk · Menampilkan {firstProduct}–{lastProduct} · Total modal{" "}
+              {filteredProducts.length} produk · Menampilkan {firstProduct}–
+              {lastProduct} · Total modal{" "}
               <strong>{formatPrice(totalCost)}</strong>
             </p>
           </div>
@@ -1198,38 +1312,60 @@ function InventoryView({
             )}
             <div className="search-field">
               <Search size={15} />
-              <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Cari produk atau serial..." />
+              <input
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="Cari produk atau serial..."
+              />
             </div>
           </div>
         </div>
         <div className="category-tabs inventory-category-tabs">
           <button
             className={!category ? "selected" : ""}
-            onClick={() => { setCategory(""); setPage(1); }}
+            onClick={() => {
+              setCategory("");
+              setPage(1);
+            }}
           >
             Semua <span>{products.length}</span>
           </button>
           <button
             className={category === "Laptop" ? "selected" : ""}
-            onClick={() => { setCategory("Laptop"); setPage(1); }}
+            onClick={() => {
+              setCategory("Laptop");
+              setPage(1);
+            }}
           >
             Laptop <span>{categoryCount("Laptop")}</span>
           </button>
           <button
             className={category === "Aksesoris" ? "selected" : ""}
-            onClick={() => { setCategory("Aksesoris"); setPage(1); }}
+            onClick={() => {
+              setCategory("Aksesoris");
+              setPage(1);
+            }}
           >
             Aksesoris <span>{categoryCount("Aksesoris")}</span>
           </button>
           <button
             className={category === "Part copotan" ? "selected" : ""}
-            onClick={() => { setCategory("Part copotan"); setPage(1); }}
+            onClick={() => {
+              setCategory("Part copotan");
+              setPage(1);
+            }}
           >
             Part <span>{categoryCount("Part copotan")}</span>
           </button>
           <button
             className={category === "Gadget" ? "selected" : ""}
-            onClick={() => { setCategory("Gadget"); setPage(1); }}
+            onClick={() => {
+              setCategory("Gadget");
+              setPage(1);
+            }}
           >
             Gadget <span>{categoryCount("Gadget")}</span>
           </button>
@@ -1278,18 +1414,45 @@ function InventoryView({
           )}
         </div>
         <div className="inventory-pagination">
-          <label className="inventory-page-size">Tampilkan
-            <select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+          <label className="inventory-page-size">
+            Tampilkan
+            <select
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+            >
               <option value="8">8</option>
               <option value="16">16</option>
               <option value="32">32</option>
             </select>
             per halaman
           </label>
-          <span className="inventory-page-status">Halaman {currentPage} dari {pageCount}</span>
+          <span className="inventory-page-status">
+            Halaman {currentPage} dari {pageCount}
+          </span>
           <div className="inventory-page-buttons">
-            <button type="button" className="icon-button bordered" aria-label="Halaman sebelumnya" title="Sebelumnya" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /></button>
-            <button type="button" className="icon-button bordered" aria-label="Halaman berikutnya" title="Berikutnya" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}><ChevronRight size={16} /></button>
+            <button
+              type="button"
+              className="icon-button bordered"
+              aria-label="Halaman sebelumnya"
+              title="Sebelumnya"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-button bordered"
+              aria-label="Halaman berikutnya"
+              title="Berikutnya"
+              disabled={currentPage >= pageCount}
+              onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
         </div>
       </section>
@@ -1511,7 +1674,7 @@ function UserView({ authUser, onLogout }) {
 function LoginView({ onLogin }) {
   const [form, setForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
-  async function submit(event) { event.preventDefault(); try { const result = await login(form); localStorage.setItem('pos_token', result.token); localStorage.setItem('pos_user', JSON.stringify(result.user)); onLogin(result.user); } catch (requestError) { setError(requestError.message); } }
+  async function submit(event) { event.preventDefault(); try { const result = await login(form); localStorage.removeItem('pos_token'); localStorage.setItem('pos_user', JSON.stringify(result.user)); onLogin(result.user); } catch (requestError) { setError(requestError.message); } }
   return <main className="login-screen"><section className="login-card"><div className="brand-mark"><Laptop size={20} /></div><div className="login-eyebrow">LAPAK LAPTOP · WORKSPACE</div><h1>Selamat datang<br /><em>kembali.</em></h1><p>Masuk untuk mengelola penjualan, inventori, dan servis.</p><form onSubmit={submit}><label>Username<input required value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} /></label><label>Password<input required type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>{error && <small className="login-error">{error}</small>}<button className="checkout-button" type="submit">Masuk ke workspace <ArrowUpRight size={17} /></button></form></section></main>;
 }
 

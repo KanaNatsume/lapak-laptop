@@ -69,5 +69,22 @@ addColumnIfMissing('transaction_items', 'serial_number', "TEXT NOT NULL DEFAULT 
 db.prepare("UPDATE transactions SET paid_amount = grand_total WHERE paid_amount = 0 AND payment_status = 'lunas'").run();
 db.prepare("UPDATE transactions SET transaction_stage = 'opening' WHERE notes = 'Nota awal servis'").run();
 db.prepare("UPDATE cash_entries SET source = 'transaction' WHERE category = 'Servis' AND description LIKE 'Pembayaran servis %'").run();
+const overpaidTransactions = db.prepare('SELECT id, invoice_number, transaction_type, grand_total, paid_amount FROM transactions WHERE paid_amount > grand_total').all();
+db.transaction(() => {
+	for (const transaction of overpaidTransactions) {
+		const retained = Math.max(0, transaction.grand_total);
+		const change = transaction.paid_amount - retained;
+		db.prepare('UPDATE transactions SET paid_amount = ?, change_amount = MAX(change_amount, ?) WHERE id = ?').run(retained, change, transaction.id);
+		if (transaction.transaction_type !== 'servis') continue;
+		const entries = db.prepare("SELECT id, amount FROM cash_entries WHERE source = 'transaction' AND description = ? ORDER BY id").all(`Pembayaran servis ${transaction.invoice_number}`);
+		let remaining = retained;
+		for (const entry of entries) {
+			const applied = Math.min(remaining, entry.amount);
+			if (applied <= 0) db.prepare('DELETE FROM cash_entries WHERE id = ?').run(entry.id);
+			else db.prepare('UPDATE cash_entries SET amount = ? WHERE id = ?').run(applied, entry.id);
+			remaining -= applied;
+		}
+	}
+})();
 
 export default db;

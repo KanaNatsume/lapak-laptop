@@ -1,9 +1,9 @@
 export const api = async (path, options = {}) => {
-  const token = localStorage.getItem('pos_token');
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const response = await fetch(`/api${path}`, {
     ...options,
-    headers: { ...(!isFormData ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) }
+    credentials: 'include',
+    headers: { ...(!isFormData ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) }
   });
   const body = response.status === 204 ? null : await response.json();
   if (response.status === 401) {
@@ -19,6 +19,8 @@ export const api = async (path, options = {}) => {
 export const getProducts = (search = '', includeOutOfStock = false) => api(`/products?search=${encodeURIComponent(search)}${includeOutOfStock ? '&include_out_of_stock=true' : ''}`);
 export const getCustomers = (search = '') => api(`/customers?search=${encodeURIComponent(search)}`);
 export const getServices = () => api('/services');
+export const getServiceAccess = (id) => api(`/services/${id}/access`);
+export const getServiceOpeningReceipt = (id) => api(`/services/${id}/opening-receipt`);
 export const getTransactions = () => api('/transactions');
 export const getSettings = () => api('/settings');
 export const updateSettings = (payload) => api('/settings', { method: 'PUT', body: JSON.stringify(payload) });
@@ -28,7 +30,7 @@ export const createProduct = (payload) => api('/products', { method: 'POST', bod
 export const updateProduct = (id, payload) => api(`/products/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
 export const importProducts = (file) => api('/products/import', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form; })() });
 export const downloadProductImportTemplate = async () => {
-  const response = await fetch('/api/products/import/template', { headers: { Authorization: `Bearer ${localStorage.getItem('pos_token') || ''}` } });
+  const response = await fetch('/api/products/import/template', { credentials: 'include' });
   if (!response.ok) throw new Error('Template Excel tidak dapat diunduh');
   const link = document.createElement('a'); link.href = URL.createObjectURL(await response.blob()); link.download = 'template-import-produk.xlsx'; link.click(); URL.revokeObjectURL(link.href);
 };

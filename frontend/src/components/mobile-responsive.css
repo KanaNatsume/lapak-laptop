@@ -33,6 +33,22 @@
   padding: 6px 9px;
 }
 
+.service-pin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border: 1px solid #e3e9e1;
+  border-radius: 4px;
+  color: #71865f;
+  background: #f8faf6;
+  font-size: 9px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 720px) {
   .history-row:not(.inventory-row) {
     grid-template-columns: minmax(0, 1fr) minmax(108px, auto);

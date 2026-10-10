@@ -8,6 +8,7 @@ User=pos-laptop
 Group=pos-laptop
 WorkingDirectory=/opt/pos-laptop
 EnvironmentFile=/opt/pos-laptop/.env
+Environment=NODE_ENV=production
 ExecStart=/usr/bin/node /opt/pos-laptop/src/server.js
 Restart=on-failure
 RestartSec=5

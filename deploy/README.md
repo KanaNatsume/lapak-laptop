@@ -18,9 +18,12 @@ CORS_ORIGIN=https://pos.example.com
 BACKUP_DIR=/var/lib/pos-laptop/backups
 BACKUP_INTERVAL_MS=86400000
 BACKUP_RETENTION_DAYS=30
+SERVICE_PIN_ENCRYPTION_KEY=
 ```
 
-The first startup creates the `admin` user with `DEFAULT_ADMIN_PASSWORD`. Change it from the profile screen after login. Do not commit `.env` or reuse the example password.
+The first startup creates the `admin` user with `DEFAULT_ADMIN_PASSWORD`. Change it from the profile screen after login. Do not commit `.env` or reuse the example password. The systemd unit sets `NODE_ENV=production`, so browser session cookies receive the `Secure` attribute.
+
+Service device PINs are encrypted at rest. For a managed key, generate one on the server with `openssl rand -hex 32` and place the result in `SERVICE_PIN_ENCRYPTION_KEY`. If the setting is empty, startup generates `/var/lib/pos-laptop/data/pos.sqlite.pin-key`. Preserve the key securely alongside database recovery materials; it is not inside the SQLite snapshot. Losing or changing it makes stored PINs unreadable.
 
 ## 2. Install and build
 
@@ -57,7 +60,7 @@ After HTTPS is active, set `CORS_ORIGIN` to the HTTPS origin and restart the ser
 
 ## 5. SQLite backup
 
-The application creates an SQLite backup at startup and then every `BACKUP_INTERVAL_MS` into `BACKUP_DIR`. The systemd unit already permits writes to `/var/lib/pos-laptop`, so keep the built-in backup directory there. Copy the backup files to a separate disk or server as part of your disaster-recovery routine.
+The application creates an SQLite backup at startup and then every `BACKUP_INTERVAL_MS` into `BACKUP_DIR`. The systemd unit already permits writes to `/var/lib/pos-laptop`, so keep the built-in backup directory there. Copy the backup files to a separate disk or server as part of your disaster-recovery routine; local snapshots alone do not protect against disk loss.
 
 To verify the backup after installation:
 

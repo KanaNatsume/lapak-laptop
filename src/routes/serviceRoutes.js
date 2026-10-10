@@ -1,8 +1,11 @@
 import { Router } from 'express';
-import { createService, listServices, updateServiceStatus } from '../controllers/serviceController.js';
+import { createService, getServiceAccess, listServices, updateServiceStatus } from '../controllers/serviceController.js';
+import { getServiceOpeningReceipt } from '../controllers/receiptController.js';
 import { authorize } from '../auth.js';
 const router = Router();
 router.get('/services', authorize('admin', 'kasir', 'teknisi'), listServices);
 router.post('/services', authorize('admin', 'kasir'), createService);
+router.get('/services/:id/opening-receipt', authorize('admin', 'kasir'), getServiceOpeningReceipt);
+router.get('/services/:id/access', authorize('admin', 'teknisi'), getServiceAccess);
 router.patch('/services/:id/status', authorize('admin', 'teknisi'), updateServiceStatus);
 export default router;
