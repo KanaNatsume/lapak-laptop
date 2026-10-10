@@ -118,6 +118,33 @@ test('transaction and stock: checkout reduces stock and rejects overselling', as
   assert.equal(oversell.status, 400);
 });
 
+test('trade-in checkout adds the received device to inventory', async () => {
+  const soldProduct = await request('/api/products', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ category: 'laptop', name: 'Trade-in Test Sale', selling_price: 5000000, stock: 1 }) });
+  const transaction = await request('/api/transactions', {
+    method: 'POST',
+    token: tokens.cashier,
+    body: JSON.stringify({
+      customer_id: 1,
+      transaction_type: 'tukar_tambah',
+      items: [
+        { item_type: 'product', reference_id: soldProduct.body.id, qty: 1 },
+        { item_type: 'trade_in', name: 'iPad 11 (A16)', category: 'gadget', price: 3000000, selling_price: 4000000, qty: 1 }
+      ]
+    })
+  });
+
+  assert.equal(transaction.status, 201);
+  const tradeInItem = transaction.body.items.find((item) => item.item_type === 'trade_in');
+  assert.equal(tradeInItem.name, 'iPad 11 (A16)');
+  const inventory = await request('/api/products?search=iPad%2011%20(A16)', { token: tokens.cashier });
+  const receivedProduct = inventory.body.find((product) => product.id === tradeInItem.reference_id);
+  assert.ok(receivedProduct);
+  assert.equal(receivedProduct.category, 'gadget');
+  assert.equal(receivedProduct.stock, 1);
+  assert.equal(receivedProduct.cost_price, 3000000);
+  assert.equal(receivedProduct.selling_price, 4000000);
+});
+
 test('service status: teknisi can advance service, cashier cannot', async () => {
   const created = await request('/api/services', { method: 'POST', token: tokens.cashier, body: JSON.stringify({ customer_id: 1, device_name: 'Test Laptop', issues: 'Tidak menyala' }) });
   assert.equal(created.status, 201);

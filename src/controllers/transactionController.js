@@ -18,8 +18,17 @@ export function createTransaction(request, response) {
       if (!['product', 'service', 'trade_in'].includes(item.item_type) || !Number.isInteger(qty) || qty <= 0) throw new Error('Item transaksi tidak valid');
       if (item.item_type === 'trade_in') {
         const tradeInPrice = Number(item.price);
+        const tradeInName = String(item.name || '').trim();
+        const tradeInCategory = item.category;
+        const sellingPrice = Number(item.selling_price);
+        if (!tradeInName || !['laptop', 'aksesoris', 'part_copotan', 'gadget'].includes(tradeInCategory)) throw new Error('Nama dan kategori barang tukar tambah wajib diisi');
         if (!Number.isSafeInteger(tradeInPrice) || tradeInPrice < 0) throw new Error('Nominal tukar tambah harus angka bulat >= 0');
+        if (!Number.isSafeInteger(sellingPrice) || sellingPrice <= 0) throw new Error('Harga jual barang tukar tambah harus angka bulat lebih besar dari 0');
         tradeInTotal += tradeInPrice * qty;
+        item.name = tradeInName;
+        item.price = tradeInPrice;
+        item.category = tradeInCategory;
+        item.selling_price = sellingPrice;
         continue;
       }
       if (item.item_type === 'product') {
@@ -47,7 +56,12 @@ export function createTransaction(request, response) {
     const transaction = db.prepare(`INSERT INTO transactions (invoice_number, customer_id, transaction_type, transaction_stage, subtotal, trade_in_total, direct_discount, shipping_cost, grand_total, paid_amount, change_amount, payment_method, payment_status, notes, warranty_note) VALUES (?, ?, ?, 'final', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(invoice, customer_id, transaction_type, subtotal, tradeInTotal, discount, shipping, grandTotal, paid, change, payment_method, paymentStatus, notes, warranty_note);
     const itemStatement = db.prepare('INSERT INTO transaction_items (transaction_id, item_type, reference_id, name, serial_number, price, qty, subtotal) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     for (const item of items) {
-      const qty = Number(item.qty || 1); itemStatement.run(transaction.lastInsertRowid, item.item_type, item.reference_id || null, item.name, item.serial_number || '', item.price, qty, Number(item.price) * qty);
+      const qty = Number(item.qty || 1);
+      if (item.item_type === 'trade_in') {
+        const product = db.prepare('INSERT INTO products (category, name, grade_condition, cost_price, selling_price, stock, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(item.category, item.name, 'B', item.price, item.selling_price, qty, `Barang masuk dari tukar tambah ${invoice}`);
+        item.reference_id = Number(product.lastInsertRowid);
+      }
+      itemStatement.run(transaction.lastInsertRowid, item.item_type, item.reference_id || null, item.name, item.serial_number || '', item.price, qty, Number(item.price) * qty);
       if (item.item_type === 'product') {
         const updated = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?').run(qty, item.reference_id, qty);
         if (updated.changes !== 1) throw new Error(`Stok tidak cukup untuk ${item.name}`);
