@@ -49,6 +49,8 @@
   overflow-wrap: anywhere;
 }
 
+.service-accounting-modal { display: grid; gap: 14px; }.service-accounting-modal section { display: grid; gap: 9px; padding-top: 12px; border-top: 1px solid #edf1ed; }.service-accounting-modal h3 { margin: 0; color: #405249; font: 600 12px 'Space Grotesk'; }.service-accounting-form { display: grid; gap: 9px; }.service-accounting-inline { display: grid; grid-template-columns: minmax(90px, .35fr) minmax(0, 1fr); gap: 9px; align-items: end; }.service-accounting-inline > .button { min-height: 36px; }.service-accounting-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f0f2ef; color: #718078; font-size: 10px; }.service-accounting-row strong { color: #405249; font-size: 10px; }.service-accounting-empty { color: #929e96; font-size: 10px; }
+
 @media (max-width: 720px) {
   .history-row:not(.inventory-row) {
     grid-template-columns: minmax(0, 1fr) minmax(108px, auto);

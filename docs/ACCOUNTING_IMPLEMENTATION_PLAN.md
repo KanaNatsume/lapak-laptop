@@ -1,14 +1,23 @@
 # Rencana Implementasi Sistem Keuangan Lapak Laptop
 
-Status dokumen: audit baca-saja selesai, 10 Oktober 2026. Belum ada database produksi atau saldo operasional yang diubah. Baseline `npm test` lulus 18/18 menggunakan `data/pos-test.sqlite`.
+Status dokumen: audit baca-saja selesai, 10 Oktober 2026. Tidak ada database produksi atau saldo operasional yang diubah. Baseline awal `npm test` lulus 18/18 menggunakan database terisolasi.
 
 ## Status Implementasi
 
-- Fase 2 fondasi: migrasi bernomor dengan checksum dan backup SQLite sebelum migrasi pending; COA awal tanpa saldo; jurnal double-entry seimbang/idempotent, audit snapshot append-only untuk draft/post/reversal, trigger immutability, dan reversal.
-- Fase 3 fondasi: tabel unit, movement, komponen biaya, alokasi HPP unit ke item transaksi, dan service untuk penerimaan, transisi, reservasi, serta alokasi unit.
-- Test baru memakai database legacy sementara untuk membuktikan backup, preservasi ID/data, migrasi ulang aman, keseimbangan/idempotensi/audit/reversal jurnal, rollback jurnal+audit bersama transaksi bisnis, dan status unit. Tidak ada saldo awal atau jurnal operasional historis yang dibuat.
-- Verifikasi terakhir: `npm test` lulus 19/19; build frontend berhasil dengan peringatan chunk JavaScript di atas 500 KB. Syntax checks backend juga bersih.
-- Belum dihubungkan ke endpoint/UI POS, checkout/refund, pembelian, servis, kas, atau laporan. Tidak ada transaksi baru yang otomatis menghasilkan jurnal.
+- Fase 2: migrasi bernomor 0001–0014 dengan checksum dan backup SQLite sebelum migrasi pending; COA awal tanpa saldo; jurnal double-entry seimbang/idempotent, audit snapshot append-only untuk draft/post/reversal, trigger immutability, dan reversal.
+- Fase 3 backend: unit laptop, movement, sumber supplier/perorangan/trade-in, pembelian tunai/kredit, diskon pembelian deterministik, layer spare part FIFO dengan total biaya exact, klasifikasi biaya unit kapitalisasi/beban, dan HPP aktual per unit.
+- Checkout memprioritaskan unit `ready`, mencatat alokasi unit, dan mem-posting pendapatan bruto serta HPP secara atomik. Pembayaran lanjutan mem-posting kas lawan piutang tanpa mengulang pendapatan; refund membalik jurnal penjualan, pembayaran, HPP, unit, dan layer secara auditabel.
+- DP servis baru dijurnal sebagai kas/bank melawan uang muka pelanggan. Saat invoice servis dibuat, DP diaplikasikan ke pendapatan tanpa kas masuk kedua kali; part pelanggan masuk HPP servis. Assignment internal tidak membuat biaya tenaga kerja otomatis. Teknisi eksternal dibuat sebagai HPP/biaya dan utang; pembayarannya mengurangi utang.
+- Work order perbaikan unit toko dapat memesan teknisi/part, mencatat biaya kapitalisasi vs beban, dan mengembalikan unit ke ready hanya setelah QC. Trade-in laptop membuat unit baru berstatus received, bukan langsung stok jual.
+- Freight actual setelah packing dicatat terpisah dari charge pada invoice, termasuk ekspedisi/resi, biaya aktual, beban toko, split payable/prepaid, top-up, saldo prepaid, dan pembayaran parsial idempotent.
+- Garansi servis pada nota final bersumber dari `services.warranty_days`, bukan teks garansi yang dikirim klien.
+- API tersedia untuk supplier, purchase document/detail, unit/movement, work order unit toko, assignment teknisi, pemakaian part/biaya, tagihan teknisi, dan fulfillment ongkir. UI riwayat transaksi menyediakan pencatatan ongkir aktual/pembayaran ekspedisi; halaman servis pelanggan menyediakan panel part/assignment/tagihan teknisi.
+- UI penerimaan pembelian/unit, work order perbaikan unit toko, top-up saldo ekspedisi prabayar, dan daftar laporan belum dibuat.
+- Endpoint stok agregat lama tetap tersedia melalui `legacy_stock`; migrasi menyalin kuantitas lama ke subledger kompatibilitas tanpa membuat unit, HPP, atau jurnal fiktif. Checkout lama mengurangi kuantitas legacy, sedangkan PUT stok lama tidak boleh menimpa unit siap jual atau spare part terlacak.
+- Test memakai database legacy sementara dan DB POS terisolasi. Test mencakup backup/preservasi ID/stok, diskon pembelian, biaya aktual berbeda per unit, HPP FIFO, biaya eligible vs expense, double-sale, DP servis, HPP part, utang teknisi, work order unit, freight prepaid/payable/partial settlement, idempotensi, refund multi-alokasi, jurnal seimbang, dan rollback. Saldo awal dan jurnal historis tidak dibuat.
+- Verifikasi terakhir: `npm test` lulus 26/26; build frontend berhasil dengan peringatan chunk JavaScript di atas 500 KB. Syntax checks backend dan frontend bersih.
+- Belum ada UI pembelian/penerimaan unit, pembayaran utang supplier, laporan keuangan, migrasi opening balance yang diverifikasi, atau jurnal untuk cash-entry manual dan servis lama.
+- Pembatalan servis setelah DP/part dipakai belum otomatis menentukan refund atau failure fee. Alur itu memerlukan kebijakan yang disetujui agar saldo customer dan biaya yang telah timbul tidak ditebak.
 - `schema.sql` dan kompatibilitas lama di `src/db.js` masih memiliki bootstrap/migrasi ad hoc; runner bernomor hanya mengatur migrasi baru. Transformasi legacy tersebut perlu dipindah/dipetakan bertahap sebelum dianggap sebagai migrasi penuh.
 
 ## 1. Arsitektur yang ditemukan

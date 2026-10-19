@@ -1,0 +1,2 @@
+ALTER TABLE service_technician_bills ADD COLUMN inventory_cost_component_id INTEGER REFERENCES inventory_cost_components(id) ON DELETE RESTRICT;
+CREATE INDEX idx_service_technician_bills_unit_cost ON service_technician_bills(inventory_cost_component_id) WHERE inventory_cost_component_id IS NOT NULL;

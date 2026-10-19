@@ -4,7 +4,7 @@ Aplikasi point of sale untuk toko laptop bekas yang menyatukan penjualan, invent
 
 ## Fitur
 
-- **Kasir:** transaksi penjualan, pembayaran bertahap, diskon, ongkos kirim, nota, dan pencarian riwayat.
+- **Kasir:** transaksi penjualan, pembayaran bertahap, diskon, ongkos kirim, nota berlogo, telepon pelanggan, dan sosial toko. Nota dapat dibuat sebagai PDF dan dibagikan melalui share sheet atau dilampirkan ke WhatsApp.
 - **Tukar tambah:** catat nilai barang masuk, tambahkan unit ke inventori, dan tentukan harga jualnya.
 - **Refund:** batalkan transaksi dengan alasan tercatat, pengembalian pembayaran, serta penyesuaian stok dan kas.
 - **Inventori:** kelola laptop, gadget, aksesori, dan komponen; pantau stok, harga, kondisi, spesifikasi, serta nomor seri. Tersedia impor produk dan label barcode/QR.

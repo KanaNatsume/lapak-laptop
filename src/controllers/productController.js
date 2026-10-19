@@ -31,11 +31,24 @@ export function updateProduct(request, response) {
   const { category, name, brand = '', specs = {}, serial_number = null, grade_condition = 'B', cost_price = 0, selling_price = 0, stock = 0, notes = '' } = request.body;
   if (!category || !name || !['laptop', 'aksesoris', 'part_copotan', 'gadget'].includes(category)) return response.status(400).json({ error: 'Kategori dan nama produk wajib diisi' });
   try {
-    const result = db.prepare(`UPDATE products SET category = ?, name = ?, brand = ?, specs = ?, serial_number = ?, grade_condition = ?, cost_price = ?, selling_price = ?, stock = ?, notes = ? WHERE id = ?`).run(category, name, brand, JSON.stringify(specs), serial_number || null, grade_condition, cost_price, selling_price, stock, notes, request.params.id);
-    if (!result.changes) return response.status(404).json({ error: 'Produk tidak ditemukan' });
-    response.json(parseProduct(db.prepare('SELECT * FROM products WHERE id = ?').get(request.params.id)));
+    const update = db.transaction(() => {
+      const current = db.prepare('SELECT id FROM products WHERE id = ?').get(request.params.id);
+      if (!current) return null;
+      const readyUnits = db.prepare("SELECT COUNT(*) AS count FROM inventory_units WHERE product_id = ? AND status = 'ready'").get(request.params.id).count;
+      const partLayerStock = db.prepare('SELECT COALESCE(SUM(quantity_remaining), 0) AS quantity FROM part_stock_layers WHERE product_id = ?').get(request.params.id).quantity;
+      const requestedStock = Number(stock);
+      if (!Number.isSafeInteger(requestedStock) || requestedStock < readyUnits + partLayerStock) throw new Error('Stok tidak boleh lebih kecil dari jumlah unit dan spare part terlacak');
+      db.prepare(`UPDATE products SET category = ?, name = ?, brand = ?, specs = ?, serial_number = ?, grade_condition = ?, cost_price = ?, selling_price = ?, stock = ?, notes = ? WHERE id = ?`).run(category, name, brand, JSON.stringify(specs), serial_number || null, grade_condition, cost_price, selling_price, requestedStock, notes, request.params.id);
+      const controls = db.prepare('UPDATE inventory_product_controls SET legacy_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?').run(requestedStock - readyUnits - partLayerStock, request.params.id);
+      if (controls.changes !== 1) throw new Error('Kontrol kompatibilitas stok tidak ditemukan');
+      return db.prepare('SELECT * FROM products WHERE id = ?').get(request.params.id);
+    });
+    const updated = update.immediate();
+    if (!updated) return response.status(404).json({ error: 'Produk tidak ditemukan' });
+    response.json(parseProduct(updated));
   } catch (error) {
     if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return response.status(409).json({ error: 'Serial number sudah digunakan' });
+    if (/Stok tidak boleh|Kontrol kompatibilitas/.test(error.message)) return response.status(409).json({ error: error.message });
     throw error;
   }
 }

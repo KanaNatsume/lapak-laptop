@@ -35,10 +35,12 @@ function addMovement(db, { unitId, movementType, fromStatus = null, toStatus, so
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(unitId, movementType, fromStatus, toStatus, sourceType, sourceId, reason, createdBy);
 }
 
-function adjustCatalogStock(db, productId, delta) {
+function adjustCatalogStock(db, productId, delta, legacyDelta = 0) {
   if (!delta) return;
   const updated = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ? AND stock + ? >= 0').run(delta, productId, delta);
   if (updated.changes !== 1) throw new Error('Stok katalog tidak dapat disesuaikan dengan pergerakan unit');
+  const adjusted = db.prepare('UPDATE inventory_product_controls SET legacy_stock = legacy_stock + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ? AND legacy_stock + ? >= 0').run(legacyDelta, productId, legacyDelta);
+  if (adjusted.changes !== 1) throw new Error('Stok legacy katalog tidak dapat disesuaikan');
 }
 
 function readUnit(db, unitId) {
@@ -55,7 +57,9 @@ export function createInventoryUnit(db, input) {
   const acquiredAt = validDate(input.acquiredAt || new Date().toISOString().slice(0, 10), 'Tanggal perolehan');
   const condition = String(input.condition || 'unknown');
   const serialNumber = String(input.serialNumber || '').trim();
-  if (!Number.isSafeInteger(productId) || productId <= 0 || !db.prepare('SELECT id FROM products WHERE id = ?').get(productId)) throw new Error('Produk katalog tidak ditemukan');
+  const product = Number.isSafeInteger(productId) && productId > 0 ? db.prepare('SELECT id, category FROM products WHERE id = ?').get(productId) : null;
+  if (!product) throw new Error('Produk katalog tidak ditemukan');
+  if (product.category !== 'laptop') throw new Error('Pelacakan per unit hanya berlaku untuk laptop');
   if (!Number.isSafeInteger(acquisitionCost) || acquisitionCost < 0) throw new Error('Biaya perolehan harus Rupiah integer >= 0');
   if (!Number.isSafeInteger(createdBy) || createdBy <= 0) throw new Error('Pembuat penerimaan unit tidak valid');
   if (!conditions.has(condition)) throw new Error('Kondisi unit tidak valid');
@@ -64,11 +68,11 @@ export function createInventoryUnit(db, input) {
     const unitCode = `UNIT-${crypto.randomUUID().toUpperCase()}`;
     const result = db.prepare(`INSERT INTO inventory_units (
       unit_code, product_id, serial_number, source_type, source_reference, source_label,
-      acquired_at, acquisition_cost, condition_grade, status, location, notes, created_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?)`).run(
+      acquired_at, acquisition_cost, condition_grade, status, location, notes, created_by, purchase_item_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?, ?)`).run(
       unitCode, productId, serialNumber, source.type, source.reference,
       String(input.sourceLabel || '').trim(), acquiredAt, acquisitionCost, condition,
-      String(input.location || '').trim(), String(input.notes || '').trim(), createdBy
+      String(input.location || '').trim(), String(input.notes || '').trim(), createdBy, input.purchaseItemId || null
     );
     const unitId = Number(result.lastInsertRowid);
     addMovement(db, { unitId, movementType: 'received', toStatus: 'received', sourceType: source.type, sourceId: source.reference, reason: 'Unit diterima; menunggu pemeriksaan', createdBy });
@@ -88,6 +92,7 @@ export function transitionInventoryUnit(db, unitId, { toStatus, reason = '', sou
   const transition = db.transaction(() => {
     const unit = db.prepare('SELECT * FROM inventory_units WHERE id = ?').get(unitId);
     if (!unit) throw new Error('Unit persediaan tidak ditemukan');
+    if (unit.returned_to_owner) throw new Error('Unit tukar tambah yang sudah dikembalikan ke pemilik tidak dapat diproses lagi');
     if (!transitions[unit.status].includes(toStatus)) throw new Error(`Perpindahan status ${unit.status} ke ${toStatus} tidak diizinkan`);
     const stockDelta = Number(toStatus === 'ready') - Number(unit.status === 'ready');
     adjustCatalogStock(db, unit.product_id, stockDelta);
@@ -115,6 +120,59 @@ export function allocateInventoryUnitToSale(db, { unitId, transactionItemId, cre
     return { unitId: Number(unit.id), transactionItemId: Number(item.id), allocatedCost: Number(unit.total_acquisition_cost) };
   });
   return allocate.immediate();
+}
+
+export function allocateReadyInventoryUnitsForSale(db, { productId, quantity, transactionItemId, createdBy }) {
+  const qty = Number(quantity);
+  if (!Number.isSafeInteger(qty) || qty <= 0) throw new Error('Jumlah unit untuk penjualan tidak valid');
+  const units = db.prepare("SELECT id FROM inventory_units WHERE product_id = ? AND status = 'ready' ORDER BY acquired_at, id LIMIT ?").all(productId, qty);
+  return units.map((unit) => allocateInventoryUnitToSale(db, { unitId: unit.id, transactionItemId, createdBy }));
+}
+
+export function consumeLegacyStockForSale(db, { productId, quantity, transactionItemId }) {
+  const qty = Number(quantity);
+  if (!Number.isSafeInteger(qty) || qty <= 0) return 0;
+  const control = db.prepare('UPDATE inventory_product_controls SET legacy_stock = legacy_stock - ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ? AND legacy_stock >= ?').run(qty, productId, qty);
+  if (control.changes !== 1) throw new Error('Stok legacy tidak cukup untuk menyelesaikan transaksi');
+  const updated = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?').run(qty, productId, qty);
+  if (updated.changes !== 1) throw new Error('Stok produk tidak cukup untuk menyelesaikan transaksi');
+  db.prepare('UPDATE transaction_items SET legacy_stock_qty = ? WHERE id = ?').run(qty, transactionItemId);
+  return qty;
+}
+
+export function restoreLegacyStockForRefund(db, { productId, quantity }) {
+  const qty = Number(quantity);
+  if (!Number.isSafeInteger(qty) || qty <= 0) return 0;
+  const control = db.prepare('UPDATE inventory_product_controls SET legacy_stock = legacy_stock + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?').run(qty, productId);
+  if (control.changes !== 1) throw new Error('Kontrol kompatibilitas stok tidak ditemukan');
+  const updated = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(qty, productId);
+  if (updated.changes !== 1) throw new Error('Produk tidak ditemukan untuk pemulihan stok');
+  return qty;
+}
+
+export function refundSoldInventoryUnits(db, { transactionItemId, refundId, createdBy }) {
+  const allocations = db.prepare(`SELECT inventory_unit_allocations.*, inventory_units.product_id, inventory_units.status
+    FROM inventory_unit_allocations JOIN inventory_units ON inventory_units.id = inventory_unit_allocations.unit_id
+    WHERE inventory_unit_allocations.transaction_item_id = ? AND inventory_unit_allocations.status = 'allocated'`).all(transactionItemId);
+  for (const allocation of allocations) {
+    if (allocation.status !== 'sold') throw new Error('Status unit penjualan tidak konsisten dengan alokasinya');
+    db.prepare("UPDATE inventory_units SET status = 'returned' WHERE id = ?").run(allocation.unit_id);
+    db.prepare(`UPDATE inventory_unit_allocations SET status = 'refunded', refund_id = ?, refunded_at = CURRENT_TIMESTAMP WHERE id = ?`).run(refundId, allocation.id);
+    addMovement(db, { unitId: allocation.unit_id, movementType: 'returned', fromStatus: 'sold', toStatus: 'returned', sourceType: 'transaction_refund', sourceId: String(refundId), reason: 'Unit dikembalikan dan menunggu pemeriksaan', createdBy });
+  }
+  return allocations.length;
+}
+
+export function returnTradeInUnitsToSource(db, { productId, sourceReference, quantity, createdBy, refundId }) {
+  const units = db.prepare(`SELECT * FROM inventory_units WHERE product_id = ? AND source_type = 'trade_in' AND source_reference = ?
+    AND status NOT IN ('sold', 'written_off', 'returned') ORDER BY id LIMIT ?`).all(productId, String(sourceReference), quantity);
+  if (units.length !== quantity) throw new Error('Unit trade-in sudah dijual, dihapuskan, atau tidak lagi tersedia untuk dibatalkan');
+  for (const unit of units) {
+    if (unit.status === 'ready') adjustCatalogStock(db, unit.product_id, -1);
+    db.prepare("UPDATE inventory_units SET status = 'returned', returned_to_owner = 1 WHERE id = ?").run(unit.id);
+    addMovement(db, { unitId: unit.id, movementType: 'returned', fromStatus: unit.status, toStatus: 'returned', sourceType: 'transaction_refund', sourceId: String(refundId), reason: 'Unit trade-in dikembalikan ke customer', createdBy });
+  }
+  return units.length;
 }
 
 export function recordPendingUnitCost(db, unitId, input) {

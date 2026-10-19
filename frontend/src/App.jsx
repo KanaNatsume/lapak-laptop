@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import QRCode from 'qrcode';
-import { changePassword, createCustomer, createProduct, createService, createTransaction, deleteProduct as deleteProductRecord, downloadProductImportTemplate, getCustomers, getNotifications, getProducts, getReceipt, getServiceAccess, getServiceOpeningReceipt, getServices, getSettings, getTransactions, importAroniumCustomers, importProducts, login, logout, payTransaction, refundTransaction as issueRefund, updateProduct, updateServiceStatus } from './api/client.js';
+import { assignServiceTechnician, changePassword, createCustomer, createExternalTechnician, createProduct, createService, createServiceTechnicianBill, createTransaction, deleteProduct as deleteProductRecord, downloadProductImportTemplate, getCustomers, getExternalTechnicians, getFreightFulfillment, getFreightFulfillments, getFreightPrepaidBalance, getNotifications, getProducts, getReceipt, getServiceAccess, getServiceOpeningReceipt, getServicePartUsages, getServiceTechnicianAssignments, getServices, getSettings, getTransactions, getUsers, importAroniumCustomers, importProducts, login, logout, payFreightFulfillment, payServiceTechnicianBill, payTransaction, recordFreightActualCost, recordServicePartUsage, refundTransaction as issueRefund, updateProduct, updateServiceStatus } from './api/client.js';
 import ReceiptPrint from './components/ReceiptPrint.jsx';
+import { shareReceiptPdf } from './components/receiptPdf.js';
 import SettingsPage from './components/SettingsPage.jsx';
 import UserManagementPage from './components/UserManagementPage.jsx';
 import CashLedgerPage from './components/CashLedgerPage.jsx';
+import FinancialReportsPage from './components/FinancialReportsPage.jsx';
+import ReconciliationPage from './components/ReconciliationPage.jsx';
 import ProductCodeCamera from './components/ProductCodeCamera.jsx';
 import './components/serial-scanner.css';
 import './components/product-import.css';
 import {
   ArrowUpRight,
+  BarChart3,
   Bell,
   Camera,
   ChevronLeft,
@@ -36,6 +40,7 @@ import {
   Smartphone,
   Sparkles,
   Trash2,
+  Truck,
   UserRound,
   UsersRound,
   Wrench,
@@ -67,7 +72,7 @@ const formatPrice = (value) => currency.format(value).replace('Rp', 'Rp ');
 const productCategoryLabel = (category) => ({ laptop: 'Laptop', aksesoris: 'Aksesoris', part_copotan: 'Part copotan', gadget: 'Gadget' }[category] || category);
 const formatSpecs = (specs = {}) => Object.entries(specs).filter(([key, value]) => key !== 'grade_condition' && !key.endsWith('_note') && value).flatMap(([, value]) => Array.isArray(value) ? value : typeof value === 'object' ? Object.values(value).filter(Boolean) : value).join(' · ') || 'Spesifikasi belum diisi';
 const shortInventorySpecs = (specs = {}) => [['CPU', specs.processor], ['GPU', specs.gpu], ['RAM', specs.memory], ['SSD', specs.storage], ['Layar', specs.display]].map(([label, value]) => [label, Array.isArray(value) ? value.filter(Boolean).join(', ') : typeof value === 'object' && value ? Object.values(value).filter(Boolean).join(', ') : String(value || '')]).filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`).join(' · ');
-const pageTitle = (page) => ({ kasir: 'Kasir baru', servis: 'Antrian servis', riwayat: 'Riwayat transaksi', inventori: 'Inventori', pelanggan: 'Pelanggan', kas: 'Kas toko', pengaturan: 'Pengaturan', users: 'Manajemen user', user: 'Profil pengguna' }[page] || 'Workspace');
+const pageTitle = (page) => ({ kasir: 'Kasir baru', servis: 'Antrian servis', riwayat: 'Riwayat transaksi', inventori: 'Inventori', pelanggan: 'Pelanggan', kas: 'Kas toko', laporan: 'Laporan keuangan', rekonsiliasi: 'Rekonsiliasi data lama', pengaturan: 'Pengaturan', users: 'Manajemen user', user: 'Profil pengguna' }[page] || 'Workspace');
 const escapePrintText = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 
 function printReceipt(receipt) {
@@ -78,7 +83,7 @@ function printReceipt(receipt) {
   const paperWidth = receipt.paper_size_preference === 'A4' ? '794px' : receipt.paper_size_preference === '80mm' ? '302px' : '219px';
   const remainingAmount = Math.max(0, Number(receipt.grand_total || 0) - Number(receipt.paid_amount || 0));
   const paymentRows = receipt.transaction_type === 'servis' ? `<div class="row"><span>Down Payment / DP</span><span>${formatPrice(receipt.paid_amount)}</span></div><div class="row"><span>Sisa pembayaran</span><span>${formatPrice(remainingAmount)}</span></div>` : `<div class="row"><span>Bayar</span><span>${formatPrice(receipt.paid_amount)}</span></div>`;
-  printWindow.document.write(`<html><head><title>${escapePrintText(receipt.invoice_number)}</title><style>body{font:12px monospace;width:${paperWidth};margin:20px auto;color:#111}h1{text-align:center;font-size:16px;margin:0 0 5px}.center{text-align:center}.line{border-top:1px dashed #111;margin:10px 0}.row{display:flex;justify-content:space-between;gap:10px;margin:5px 0}.item{margin:8px 0}.serial{font-size:10px;color:#555}strong{font-size:14px}@media print{body{margin:0;width:${paperWidth}}}</style></head><body><h1>${escapePrintText(receipt.store_name || 'LAPAK LAPTOP')}</h1><div class="center">${escapePrintText(receipt.store_address || '')}<br>${escapePrintText(receipt.store_phone || '')}</div><div class="line"></div><div>Invoice: ${escapePrintText(receipt.invoice_number)}</div><div>${escapePrintText(receipt.created_at || new Date().toLocaleString('id-ID'))}</div><div>Pelanggan: ${escapePrintText(receipt.customer_name || 'Umum')}</div><div class="line"></div>${items.map((item) => `<div class="item"><div>${escapePrintText(item.name)}</div>${item.serial_number ? `<div class="serial">SN: ${escapePrintText(item.serial_number)}</div>` : ''}<div class="row"><span>${item.qty} x ${formatPrice(item.price)}</span><span>${formatPrice(item.subtotal)}</span></div></div>`).join('')}<div class="line"></div><div class="row"><span>Subtotal</span><span>${formatPrice(receipt.subtotal)}</span></div><div class="row"><span>Diskon</span><span>-${formatPrice(receipt.direct_discount)}</span></div><div class="row"><span>Ongkir</span><span>${formatPrice(receipt.shipping_cost)}</span></div><div class="row"><strong>Total</strong><strong>${formatPrice(receipt.grand_total)}</strong></div>${paymentRows}<div class="row"><span>Kembali</span><span>${formatPrice(receipt.change_amount)}</span></div><div class="line"></div><div class="center">${escapePrintText(receipt.receipt_footer_text || '')}<br><br>${escapePrintText(receipt.receipt_closing_text || '')}</div></body></html>`);
+  printWindow.document.write(`<html><head><title>${escapePrintText(receipt.invoice_number)}</title><style>body{font:12px monospace;width:${paperWidth};margin:20px auto;color:#111}h1{text-align:center;font-size:16px;margin:0 0 5px}.center{text-align:center}.line{border-top:1px dashed #111;margin:10px 0}.row{display:flex;justify-content:space-between;gap:10px;margin:5px 0}.item{margin:8px 0}.serial{font-size:10px;color:#555}strong{font-size:14px}@media print{body{margin:0;width:${paperWidth}}}</style></head><body><h1>${escapePrintText(receipt.store_name || 'LAPAK LAPTOP')}</h1><div class="center">${escapePrintText(receipt.store_address || '')}<br>${escapePrintText(receipt.store_phone || '')}</div><div class="line"></div><div>Invoice: ${escapePrintText(receipt.invoice_number)}</div><div>${escapePrintText(receipt.created_at || new Date().toLocaleString('id-ID'))}</div><div>Pelanggan: ${escapePrintText(receipt.customer_name || 'Umum')}</div><div class="line"></div>${items.map((item) => `<div class="item"><div>${escapePrintText(item.name)}</div>${item.serial_number ? `<div class="serial">SN: ${escapePrintText(item.serial_number)}</div>` : ''}<div class="row"><span>${item.qty} x ${formatPrice(item.price)}</span><span>${formatPrice(item.subtotal)}</span></div></div>`).join('')}${receipt.warranty_note ? `<div class="row"><span>Garansi</span><span>${escapePrintText(receipt.warranty_note)}</span></div>` : ''}<div class="line"></div><div class="row"><span>Subtotal</span><span>${formatPrice(receipt.subtotal)}</span></div><div class="row"><span>Diskon</span><span>-${formatPrice(receipt.direct_discount)}</span></div><div class="row"><span>Ongkir</span><span>${formatPrice(receipt.shipping_cost)}</span></div><div class="row"><strong>Total</strong><strong>${formatPrice(receipt.grand_total)}</strong></div>${paymentRows}<div class="row"><span>Kembali</span><span>${formatPrice(receipt.change_amount)}</span></div><div class="line"></div><div class="center">${escapePrintText(receipt.receipt_footer_text || '')}<br><br>${escapePrintText(receipt.receipt_closing_text || '')}</div></body></html>`);
   printWindow.document.close();
   printWindow.focus();
   printWindow.print();
@@ -132,11 +137,15 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
   const [transactions, setTransactions] = useState([]);
   const [settlementTransaction, setSettlementTransaction] = useState(null);
   const [refundTarget, setRefundTarget] = useState(null);
+  const [freightTarget, setFreightTarget] = useState(null);
+  const [freightPaymentTarget, setFreightPaymentTarget] = useState(null);
+  const [freightFulfillments, setFreightFulfillments] = useState([]);
   const [receipt, setReceipt] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [storeSettings, setStoreSettings] = useState({ opening_time: '09:00', closing_time: '21:00' });
   const [serviceQuote, setServiceQuote] = useState(null);
+  const [serviceAccountingTarget, setServiceAccountingTarget] = useState(null);
 
   useEffect(() => {
     Promise.all([getProducts(), getProducts('', true), can('admin', 'kasir') ? getCustomers() : Promise.resolve([]), getServices(), can('admin', 'kasir') ? getTransactions() : Promise.resolve([]), getNotifications()]).then(([loadedProducts, loadedInventory, loadedCustomers, loadedServices, loadedTransactions, loadedNotifications]) => {
@@ -152,6 +161,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
     }).catch((error) => setToast(error.message)).finally(() => setLoading(false));
   }, []);
   useEffect(() => { getSettings().then(setStoreSettings).catch(() => {}); }, []);
+  useEffect(() => { getFreightFulfillments().then(setFreightFulfillments).catch(() => {}); }, []);
 
   const today = new Date().toISOString().slice(0, 10);
   const todayTransactions = transactions.filter((transaction) => transaction.created_at?.slice(0, 10) === today);
@@ -202,11 +212,13 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
       const completeReceipt = await getReceipt(result.id);
       setReceipt(completeReceipt);
       setTransactions((current) => [result, ...current]);
+      await shareReceipt(completeReceipt);
       printReceipt(completeReceipt);
       const tradeInItem = result.items?.find((item) => item.item_type === 'trade_in');
       if (tradeInItem) {
-        const incomingProduct = { id: tradeInItem.reference_id, category: productCategoryLabel(tradeIn.category), name: tradeIn.name, brand: '', specs: {}, serial_number: null, grade_condition: 'B', cost_price: tradeIn.value, selling_price: tradeIn.sellingPrice, stock: tradeInItem.qty, notes: `Barang masuk dari tukar tambah ${result.invoice_number}`, price: tradeIn.sellingPrice, grade: 'B', serial: '', spec: 'Spesifikasi belum diisi' };
-        setProducts((current) => [incomingProduct, ...current]);
+        const receivedStock = tradeIn.category === 'laptop' ? 0 : tradeInItem.qty;
+        const incomingProduct = { id: tradeInItem.reference_id, category: productCategoryLabel(tradeIn.category), name: tradeIn.name, brand: '', specs: {}, serial_number: null, grade_condition: 'B', cost_price: tradeIn.value, selling_price: tradeIn.sellingPrice, stock: receivedStock, notes: `Barang masuk dari tukar tambah ${result.invoice_number}`, price: tradeIn.sellingPrice, grade: 'B', serial: '', spec: 'Spesifikasi belum diisi' };
+        if (receivedStock > 0) setProducts((current) => [incomingProduct, ...current]);
         setInventoryProducts((current) => [incomingProduct, ...current]);
       }
       setCart([]); setDiscount(0); setShipping(0); setTradeIn(null); setPaidAmount(0);
@@ -301,11 +313,11 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
       const updated = await updateServiceStatus(serviceId, payload);
       setServiceTickets((current) => current.map((ticket) => ticket.serviceId === serviceId ? { ...ticket, status: updated.status.replaceAll('_', ' ') } : ticket));
       setToast(`Status tiket diubah ke ${next.replaceAll('_', ' ')}`);
-      if (next === 'selesai' && ticket) {
-        const downPayment = Number(ticket.down_payment || 0);
-        const paymentStatus = downPayment <= 0 ? 'bayar_nanti' : downPayment >= Number(updated.final_cost || 0) ? 'lunas' : 'dp';
-        const transaction = await createTransaction({ customer_id: ticket.customerId, transaction_type: 'servis', paid_amount: downPayment, payment_status: paymentStatus, payment_method: 'cash', items: [{ item_type: 'service', reference_id: serviceId, name: `Servis ${ticket.device}`, price: updated.final_cost, qty: 1 }] });
-        const serviceReceipt = await getReceipt(transaction.id); setReceipt(serviceReceipt); printReceipt(serviceReceipt);
+      if (next === 'selesai' && updated.transaction) {
+        const serviceReceipt = await getReceipt(updated.transaction.id);
+        setReceipt(serviceReceipt);
+        await shareReceipt(serviceReceipt);
+        printReceipt(serviceReceipt);
       }
     } catch (error) { setToast(error.message); }
   }
@@ -356,6 +368,42 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
     }
   }
 
+  async function shareReceipt(receiptData) {
+    try {
+      const result = await shareReceiptPdf(receiptData);
+      setToast(result === 'shared' ? 'Pilih WhatsApp pada lembar berbagi untuk mengirim PDF nota' : 'PDF nota diunduh; lampirkan file tersebut di WhatsApp');
+    } catch (error) {
+      if (error.name !== 'AbortError') setToast(error.message || 'PDF nota gagal dibuat');
+    }
+  }
+
+  async function submitFreightActual(transaction, payload) {
+    try {
+      const fulfillment = await recordFreightActualCost(transaction.id, payload);
+      setFreightFulfillments((current) => [fulfillment, ...current.filter((item) => item.id !== fulfillment.id)]);
+      setFreightTarget(null);
+      setToast(`Ongkir aktual ${formatPrice(fulfillment.actual_cost)} dicatat`);
+      return true;
+    } catch (error) {
+      setToast(error.message || 'Ongkir aktual gagal dicatat');
+      return false;
+    }
+  }
+
+  async function submitFreightPayment(fulfillment, payload) {
+    try {
+      const payment = await payFreightFulfillment(fulfillment.id, payload);
+      const updated = await getFreightFulfillment(fulfillment.id);
+      setFreightFulfillments((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setFreightPaymentTarget(null);
+      setToast(`Pembayaran ekspedisi dicatat · sisa ${formatPrice(payment.outstanding)}`);
+      return true;
+    } catch (error) {
+      setToast(error.message || 'Pembayaran ekspedisi gagal');
+      return false;
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -373,6 +421,8 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
           {can('admin', 'kasir', 'teknisi') && <NavButton icon={<ShoppingBag size={18} />} label="Inventori" active={activePage === 'inventori'} onClick={() => setActivePage('inventori')} />}
           {can('admin', 'kasir') && <NavButton icon={<UsersRound size={18} />} label="Pelanggan" active={activePage === 'pelanggan'} onClick={() => setActivePage('pelanggan')} />}
           {can('admin', 'kasir') && <NavButton icon={<CircleDollarSign size={18} />} label="Kas toko" active={activePage === 'kas'} onClick={() => setActivePage('kas')} />}
+          {can('admin') && <NavButton icon={<BarChart3 size={18} />} label="Laporan" active={activePage === 'laporan'} onClick={() => setActivePage('laporan')} />}
+          {can('admin') && <NavButton icon={<ClipboardList size={18} />} label="Rekonsiliasi" active={activePage === 'rekonsiliasi'} onClick={() => setActivePage('rekonsiliasi')} />}
           {can('admin') && <NavButton icon={<UsersRound size={18} />} label="User & akses" active={activePage === 'users'} onClick={() => setActivePage('users')} />}
         </nav>
         <div className="sidebar-bottom">
@@ -389,21 +439,27 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
         </header>
         {activePage === 'kasir' && can('admin', 'kasir') ? (
           <CashierView {...{ cart, customer, searchTerm, setSearchTerm, filteredProducts, addToCart, addScannedProduct, removeFromCart, changeQuantity, customerSearch, setCustomerSearch, filteredCustomers, showCustomerPicker, setShowCustomerPicker, setCustomer, subtotal, discount, setDiscount, shipping, setShipping, tradeIn, setTradeIn, showTradeIn, setShowTradeIn, total, paidAmount, setPaidAmount, completePayment, paymentMethod, setPaymentMethod, category, setCategory, loading, todayTransactionCount: todayTransactions.length, todaySalesTotal, activeServiceCount: activeServiceTickets.length, approvalServiceCount: approvalServiceTickets.length, openProductModal: () => { setEditingProduct(null); setModal('product'); }, openCustomerModal: () => setModal('customer') }} />
-        ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
-            : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} onPrint={reprintTransaction} onSettle={settleTransaction} onRefund={setRefundTarget} />
+        ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} onManageAccounting={can('admin', 'teknisi') ? setServiceAccountingTarget : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
+            : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} freightFulfillments={freightFulfillments} onPrint={reprintTransaction} onSettle={settleTransaction} onRefund={setRefundTarget} onFreight={setFreightTarget} onPayFreight={setFreightPaymentTarget} />
             : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onDeleteProduct={can('admin', 'kasir') ? deleteInventoryProduct : undefined} onPrintLabel={can('admin', 'kasir') ? printProductLabel : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
               : activePage === 'pelanggan' && can('admin', 'kasir') ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} onImportCustomers={can('admin', 'kasir') ? importAroniumCustomerFile : undefined} />
                 : activePage === 'kas' && can('admin', 'kasir') ? <CashLedgerPage onToast={setToast} />
+                : activePage === 'laporan' && can('admin') ? <FinancialReportsPage onToast={setToast} />
+                : activePage === 'rekonsiliasi' && can('admin') ? <ReconciliationPage onToast={setToast} />
                 : activePage === 'users' && can('admin') ? <UserManagementPage currentUser={authUser} onCurrentUserUpdated={(user) => { localStorage.setItem('pos_user', JSON.stringify(user)); onAuthUserUpdated(user); }} onToast={setToast} />
                 : activePage === 'pengaturan' && can('admin') ? <SettingsPage onSaved={(message, settings) => { setToast(message); if (settings) setStoreSettings(settings); }} />
                   : <UserView authUser={authUser} onLogout={onLogout} />}
-        {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} onPrint={() => printReceipt(receipt)} />}
+        {receipt && <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} onPrint={() => printReceipt(receipt)} onShare={() => shareReceipt(receipt)} />}
         {settlementTransaction && <SettlementModal transaction={settlementTransaction} onClose={() => setSettlementTransaction(null)} onSave={(amount) => settleTransaction(settlementTransaction, amount)} />}
         {refundTarget && <RefundModal transaction={refundTarget} onClose={() => setRefundTarget(null)} onSave={(reason) => submitRefund(refundTarget, reason)} />}
+        {freightTarget && <FreightActualModal transaction={freightTarget} onClose={() => setFreightTarget(null)} onSave={(payload) => submitFreightActual(freightTarget, payload)} />}
+        {freightPaymentTarget && <FreightPaymentModal fulfillment={freightPaymentTarget} onClose={() => setFreightPaymentTarget(null)} onSave={(payload) => submitFreightPayment(freightPaymentTarget, payload)} />}
         {modal === 'product' && <ProductModal product={editingProduct} onClose={() => { setEditingProduct(null); setModal(null); }} onSave={saveProduct} />}
         {modal === 'customer' && <CustomerModal onClose={() => setModal(null)} onSave={saveCustomer} />}
         {modal === 'service' && can('admin', 'kasir') && <ServiceModal customers={customers} customer={customer} onClose={() => { setModal(null); setReturnToServiceAfterCustomer(false); }} onSave={saveService} onAddCustomer={() => { setReturnToServiceAfterCustomer(true); setModal('customer'); }} />}
         {serviceQuote && <ServiceQuoteModal ticket={serviceQuote.ticket} onClose={() => setServiceQuote(null)} onSave={submitServiceQuote} />}
+        {serviceAccountingTarget && <ServiceAccountingModal service={serviceAccountingTarget} currentUser={authUser} products={inventoryProducts} onClose={() => setServiceAccountingTarget(null)} onToast={setToast} />}
+        {serviceAccountingTarget && <ServiceAccountingModal service={serviceAccountingTarget} currentUser={authUser} products={inventoryProducts} onClose={() => setServiceAccountingTarget(null)} onToast={setToast} />}
         {toast && <button className="toast" onClick={() => setToast('')}>{toast}<X size={14} /></button>}
       </main>
     </div>
@@ -465,6 +521,7 @@ function ServiceView({
   setToast,
   onChangeStatus,
   onCancelStatus,
+  onManageAccounting,
   canCreate,
   canManage,
   openServiceModal,
@@ -593,13 +650,13 @@ function ServiceView({
               </button>
               <span className="ticket-age">{ticket.age || "Aktif"}</span>
               <button
-                disabled={!canManage}
+                disabled={!canManage || !onManageAccounting}
                 className="row-arrow"
-                onClick={() =>
-                  onChangeStatus?.(ticket.serviceId, ticket.status, ticket)
-                }
+                onClick={() => onManageAccounting?.(ticket)}
+                aria-label={`Part dan teknisi ${ticket.id}`}
+                title="Part dan teknisi"
               >
-                <ArrowUpRight size={16} />
+                <ClipboardList size={16} />
               </button>
               {canManage && ticket.status === "menunggu persetujuan" && (
                 <button
@@ -1162,7 +1219,7 @@ function SerialScanner({ onDetected }) {
 
 function SectionHeading({ eyebrow, title, description, action, onAction }) { return <section className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" /> {eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action && <button className="button primary" onClick={onAction}><Plus size={17} /> {action}</button>}</section>; }
 
-function TransactionHistory({ transactions, onPrint, onSettle, onRefund }) {
+function TransactionHistory({ transactions, freightFulfillments, onPrint, onSettle, onRefund, onFreight, onPayFreight }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -1198,15 +1255,19 @@ function TransactionHistory({ transactions, onPrint, onSettle, onRefund }) {
           {visibleTransactions.length ? (
             visibleTransactions.map((transaction) => (
               <div className="history-row" key={transaction.id}>
+                {(() => {
+                  const freight = freightFulfillments.find((item) => item.transaction_id === transaction.id);
+                  return <>
                 <div>
                   <strong>{transaction.invoice_number}</strong>
                   <small>{transaction.created_at}</small>
                 </div>
                 <span>
-                  {transaction.transaction_type} · {transaction.refunded_at ? 'direfund' : transaction.payment_status}
+                  {transaction.transaction_type} · {transaction.refunded_at ? 'direfund' : transaction.payment_status}{freight ? ` · Ongkir ${formatPrice(freight.actual_cost)}` : ''}
                 </span>
                 <strong>{formatPrice(transaction.grand_total)}</strong>
                 <div className="history-actions">
+                  {!transaction.refunded_at && (!freight || Number(freight.outstanding || 0) > 0) && <button type="button" className="icon-button bordered" onClick={() => freight ? onPayFreight(freight) : onFreight(transaction)} aria-label={freight ? `Bayar utang ekspedisi ${transaction.invoice_number}` : `Catat ongkir aktual ${transaction.invoice_number}`} title={freight ? `Sisa utang ekspedisi ${formatPrice(freight.outstanding)}` : 'Catat ongkir aktual setelah packing'}><Truck size={16} /></button>}
                   {!transaction.refunded_at && transaction.payment_status !== "lunas" &&
                     Number(transaction.grand_total || 0) >
                       Number(transaction.paid_amount || 0) && (
@@ -1228,6 +1289,8 @@ function TransactionHistory({ transactions, onPrint, onSettle, onRefund }) {
                     <Printer size={16} />
                   </button>
                 </div>
+                  </>;
+                })()}
               </div>
             ))
           ) : (
@@ -1732,12 +1795,153 @@ function LoginView({ onLogin }) {
 
 function NotificationPanel({ notifications, onClose }) { return <div className="notification-panel"><div className="notification-header"><strong>Notifikasi</strong><button onClick={onClose}>Tutup</button></div>{notifications.length ? notifications.map((item) => <div className="notification-item" key={item.id}><span className={`notification-dot ${item.type}`} /><div><strong>{item.title}</strong><small>{item.detail}</small></div></div>) : <div className="notification-empty"><Bell size={18} /><span>Tidak ada notifikasi baru.</span></div>}</div>; }
 
-function ReceiptModal({ receipt, onClose, onPrint }) { return <Modal title="Nota transaksi" onClose={onClose}><ReceiptPrint receipt={receipt} onPrint={onPrint} /></Modal>; }
+function ReceiptModal({ receipt, onClose, onPrint, onShare }) { return <Modal title="Nota transaksi" onClose={onClose}><ReceiptPrint receipt={receipt} onPrint={onPrint} onShare={onShare} /></Modal>; }
 
 function SettlementModal({ transaction, onClose, onSave }) {
   const remaining = Math.max(0, Number(transaction.grand_total || 0) - Number(transaction.paid_amount || 0));
   const [amount, setAmount] = useState(String(remaining));
   return <Modal title="Pelunasan transaksi" onClose={onClose}><form className="modal-form" onSubmit={(event) => { event.preventDefault(); onSave(amount); }}><div className="form-note"><CircleDollarSign size={15} /> {transaction.invoice_number} · Sisa tagihan {formatPrice(remaining)}</div><Field label="Nominal pembayaran" required><input autoFocus required type="number" min="1" max={remaining} value={amount} onChange={(event) => setAmount(event.target.value)} /></Field><div className="modal-actions"><button type="button" className="button ghost" onClick={onClose}>Batal</button><button type="submit" className="button primary">Simpan pelunasan</button></div></form></Modal>;
+}
+
+function FreightActualModal({ transaction, onClose, onSave }) {
+  const [expedition, setExpedition] = useState('');
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [actualCost, setActualCost] = useState('');
+  const [prepaidAmount, setPrepaidAmount] = useState('0');
+  const [prepaidBalance, setPrepaidBalance] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  useEffect(() => { getFreightPrepaidBalance().then((result) => setPrepaidBalance(Number(result.balance || 0))).catch(() => {}); }, []);
+  const actual = Number(actualCost || 0);
+  const prepaid = Number(prepaidAmount || 0);
+  const payable = Math.max(0, actual - prepaid);
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    const saved = await onSave({ expedition: expedition.trim(), trackingNumber: trackingNumber.trim(), actualCost: actual, prepaidAmount: prepaid, payableAmount: payable, idempotencyKey });
+    if (!saved) setSaving(false);
+  }
+  return <Modal title="Catat ongkir aktual" onClose={onClose}><form className="modal-form" onSubmit={submit}><div className="form-note"><Truck size={15} /> {transaction.invoice_number} · Ditagihkan ke pelanggan {formatPrice(transaction.shipping_cost || 0)}</div><Field label="Ekspedisi" required><input autoFocus required value={expedition} onChange={(event) => setExpedition(event.target.value)} placeholder="JNE, J&T, SiCepat..." /></Field><Field label="Nomor resi"><input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} placeholder="Nomor resi" /></Field><Field label="Biaya aktual setelah packing" required><input required type="number" min="1" value={actualCost} onChange={(event) => setActualCost(event.target.value)} placeholder="0" /></Field><Field label={`Dibayar dari saldo prabayar (saldo ${formatPrice(prepaidBalance)})`} required><input required type="number" min="0" max={Math.min(actual, prepaidBalance)} value={prepaidAmount} onChange={(event) => setPrepaidAmount(event.target.value)} /></Field><div className="form-note">Utang ekspedisi: {formatPrice(payable)} · Beban toko: {formatPrice(Math.max(actual - Number(transaction.shipping_cost || 0), 0))}</div>{error && <small className="login-error">{error}</small>}<div className="modal-actions"><button type="button" className="button ghost" disabled={saving} onClick={onClose}>Batal</button><button type="submit" className="button primary" disabled={saving || !expedition.trim() || actual <= 0 || prepaid < 0 || prepaid > actual || prepaid > prepaidBalance}>{saving ? 'Menyimpan...' : 'Simpan ongkir aktual'}</button></div></form></Modal>;
+}
+
+function FreightPaymentModal({ fulfillment, onClose, onSave }) {
+  const [amount, setAmount] = useState(String(fulfillment.outstanding || 0));
+  const [cashAccountCode, setCashAccountCode] = useState('1110');
+  const [saving, setSaving] = useState(false);
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    const saved = await onSave({ amount: Number(amount), cashAccountCode, idempotencyKey });
+    if (!saved) setSaving(false);
+  }
+  return <Modal title="Bayar utang ekspedisi" onClose={onClose}><form className="modal-form" onSubmit={submit}><div className="form-note"><Truck size={15} /> {fulfillment.expedition} · {fulfillment.tracking_number || fulfillment.invoice_number} · Sisa {formatPrice(fulfillment.outstanding)}</div><Field label="Nominal pembayaran" required><input autoFocus required type="number" min="1" max={fulfillment.outstanding} value={amount} onChange={(event) => setAmount(event.target.value)} /></Field><Field label="Sumber dana" required><select value={cashAccountCode} onChange={(event) => setCashAccountCode(event.target.value)}><option value="1110">Kas toko</option><option value="1120">Bank / transfer</option><option value="1130">QRIS / dompet digital</option></select></Field><div className="modal-actions"><button type="button" className="button ghost" disabled={saving} onClick={onClose}>Batal</button><button type="submit" className="button primary" disabled={saving || Number(amount) <= 0 || Number(amount) > Number(fulfillment.outstanding)}>{saving ? 'Menyimpan...' : 'Catat pembayaran'}</button></div></form></Modal>;
+}
+
+function ServiceAccountingModal({ service, currentUser, products, onClose, onToast }) {
+  const [partUsages, setPartUsages] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [externalTechnicians, setExternalTechnicians] = useState([]);
+  const [internalTechnicians, setInternalTechnicians] = useState(currentUser.role === 'teknisi' ? [currentUser] : []);
+  const [partId, setPartId] = useState('');
+  const [partQuantity, setPartQuantity] = useState('1');
+  const [partDescription, setPartDescription] = useState('');
+  const [technicianType, setTechnicianType] = useState('internal');
+  const [internalTechnicianId, setInternalTechnicianId] = useState(currentUser.role === 'teknisi' ? String(currentUser.id) : '');
+  const [externalTechnicianId, setExternalTechnicianId] = useState('');
+  const [newExternalName, setNewExternalName] = useState('');
+  const [billAmount, setBillAmount] = useState('');
+  const [billReason, setBillReason] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [cashAccountCode, setCashAccountCode] = useState('1110');
+  const [saving, setSaving] = useState(false);
+  const partProducts = products.filter((product) => product.category === 'Part copotan' && product.stock > 0);
+  const activeAssignment = assignments.find((assignment) => assignment.status === 'assigned') || assignments[0];
+  const activeBill = activeAssignment?.bills?.find((bill) => bill.payment_status !== 'paid');
+  const inProgress = service.status === 'proses servis';
+
+  async function refresh() {
+    const [usages, savedAssignments, external] = await Promise.all([
+      getServicePartUsages(service.serviceId),
+      getServiceTechnicianAssignments(service.serviceId),
+      getExternalTechnicians()
+    ]);
+    setPartUsages(usages);
+    setAssignments(savedAssignments);
+    setExternalTechnicians(external);
+    if (currentUser.role === 'admin') setInternalTechnicians((await getUsers()).filter((user) => user.role === 'teknisi' && user.active));
+  }
+  useEffect(() => { refresh().catch((error) => onToast(error.message)); }, [service.serviceId]);
+
+  async function submitPart(event) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const result = await recordServicePartUsage(service.serviceId, { productId: Number(partId), quantity: Number(partQuantity), description: partDescription, idempotencyKey: crypto.randomUUID() });
+      await refresh();
+      setPartQuantity('1');
+      setPartDescription('');
+      onToast(`Part dicatat · HPP servis ${formatPrice(result.totalCost)}`);
+    } catch (error) { onToast(error.message); }
+    finally { setSaving(false); }
+  }
+
+  async function submitAssignment(event) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const payload = technicianType === 'internal'
+        ? { technicianType, internalUserId: Number(internalTechnicianId) }
+        : { technicianType, externalTechnicianId: Number(externalTechnicianId) };
+      await assignServiceTechnician(service.serviceId, payload);
+      await refresh();
+      onToast('Teknisi ditugaskan');
+    } catch (error) { onToast(error.message); }
+    finally { setSaving(false); }
+  }
+
+  async function addExternalTechnician() {
+    if (!newExternalName.trim()) return;
+    setSaving(true);
+    try {
+      const created = await createExternalTechnician({ name: newExternalName.trim() });
+      setExternalTechnicians((current) => [...current, created]);
+      setExternalTechnicianId(String(created.id));
+      setNewExternalName('');
+    } catch (error) { onToast(error.message); }
+    finally { setSaving(false); }
+  }
+
+  async function submitBill(event) {
+    event.preventDefault();
+    if (!activeAssignment || activeAssignment.technician_type !== 'external') return;
+    setSaving(true);
+    try {
+      await createServiceTechnicianBill(activeAssignment.id, { amount: Number(billAmount), treatmentReason: billReason, idempotencyKey: crypto.randomUUID() });
+      await refresh();
+      setBillAmount('');
+      setBillReason('');
+      onToast('Tagihan teknisi eksternal tercatat sebagai HPP servis');
+    } catch (error) { onToast(error.message); }
+    finally { setSaving(false); }
+  }
+
+  async function submitBillPayment(event) {
+    event.preventDefault();
+    if (!activeBill) return;
+    setSaving(true);
+    try {
+      await payServiceTechnicianBill(activeBill.id, { amount: Number(paymentAmount || activeBill.amount - activeBill.paid_amount), cashAccountCode, idempotencyKey: crypto.randomUUID() });
+      await refresh();
+      setPaymentAmount('');
+      onToast('Pembayaran teknisi eksternal dicatat');
+    } catch (error) { onToast(error.message); }
+    finally { setSaving(false); }
+  }
+
+  return <Modal title={`Servis · ${service.id}`} onClose={onClose}><div className="service-accounting-modal"><div className="form-note"><Wrench size={15} /> {service.device} · {service.customer}</div><section><h3>Spare part</h3>{partUsages.map((usage) => <div className="service-accounting-row" key={usage.id}><span>{usage.product_name} × {usage.quantity}</span><strong>{formatPrice(usage.total_cost)}</strong></div>)}{!partUsages.length && <small className="service-accounting-empty">Belum ada part digunakan.</small>}{inProgress && <form className="service-accounting-form" onSubmit={submitPart}><Field label="Part dari stok" required><select required value={partId} onChange={(event) => setPartId(event.target.value)}><option value="">Pilih spare part</option>{partProducts.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.stock} stok</option>)}</select></Field><div className="service-accounting-inline"><Field label="Jumlah" required><input required min="1" max={partProducts.find((product) => String(product.id) === partId)?.stock || 1} type="number" value={partQuantity} onChange={(event) => setPartQuantity(event.target.value)} /></Field><Field label="Keterangan" required><input required value={partDescription} onChange={(event) => setPartDescription(event.target.value)} /></Field></div><button className="button ghost" disabled={saving || !partId}>Catat part dipakai</button></form>}</section><section><h3>Teknisi</h3>{activeAssignment && <div className="service-accounting-row"><span>{activeAssignment.technician_type === 'internal' ? 'Internal' : 'Eksternal'} · {activeAssignment.internal_technician_name || activeAssignment.external_technician_name}</span><strong>{activeAssignment.status}</strong></div>}{!activeAssignment && <form className="service-accounting-form" onSubmit={submitAssignment}><Field label="Jenis teknisi" required><select value={technicianType} onChange={(event) => setTechnicianType(event.target.value)}><option value="internal">Internal</option><option value="external">Eksternal</option></select></Field>{technicianType === 'internal' ? <Field label="Teknisi internal" required><select required value={internalTechnicianId} onChange={(event) => setInternalTechnicianId(event.target.value)}><option value="">Pilih teknisi</option>{internalTechnicians.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></Field> : <><Field label="Teknisi eksternal" required><select required value={externalTechnicianId} onChange={(event) => setExternalTechnicianId(event.target.value)}><option value="">Pilih teknisi</option>{externalTechnicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.name}</option>)}</select></Field>{currentUser.role === 'admin' && <div className="service-accounting-inline"><Field label="Tambah teknisi eksternal"><input value={newExternalName} onChange={(event) => setNewExternalName(event.target.value)} /></Field><button type="button" className="button ghost" disabled={saving || !newExternalName.trim()} onClick={addExternalTechnician}>Tambah</button></div>}</>}<button className="button ghost" disabled={saving || (technicianType === 'internal' ? !internalTechnicianId : !externalTechnicianId)}>Simpan assignment</button></form>}{activeAssignment?.technician_type === 'external' && currentUser.role === 'admin' && (activeBill ? <form className="service-accounting-form" onSubmit={submitBillPayment}><Field label={`Tagihan ${formatPrice(activeBill.amount)} · dibayar ${formatPrice(activeBill.paid_amount)}`}><input type="number" min="1" max={activeBill.amount - activeBill.paid_amount} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder={String(activeBill.amount - activeBill.paid_amount)} /></Field><div className="service-accounting-inline"><Field label="Sumber dana"><select value={cashAccountCode} onChange={(event) => setCashAccountCode(event.target.value)}><option value="1110">Kas toko</option><option value="1120">Bank / transfer</option><option value="1130">QRIS</option></select></Field><button className="button ghost" disabled={saving}>Bayar teknisi</button></div></form> : <form className="service-accounting-form" onSubmit={submitBill}><div className="service-accounting-inline"><Field label="Tagihan eksternal" required><input required type="number" min="1" value={billAmount} onChange={(event) => setBillAmount(event.target.value)} /></Field><Field label="Keterangan" required><input required value={billReason} onChange={(event) => setBillReason(event.target.value)} /></Field></div><button className="button ghost" disabled={saving || !billAmount}>Catat HPP teknisi</button></form>)}</section></div></Modal>;
 }
  
  function RefundModal({ transaction, onClose, onSave }) {
