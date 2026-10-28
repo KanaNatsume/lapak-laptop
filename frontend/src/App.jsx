@@ -9,6 +9,7 @@ import UserManagementPage from './components/UserManagementPage.jsx';
 import CashLedgerPage from './components/CashLedgerPage.jsx';
 import FinancialReportsPage from './components/FinancialReportsPage.jsx';
 import ReconciliationPage from './components/ReconciliationPage.jsx';
+import PurchasePage from './components/PurchasePage.jsx';
 import ProductCodeCamera from './components/ProductCodeCamera.jsx';
 import './components/serial-scanner.css';
 import './components/product-import.css';
@@ -72,7 +73,7 @@ const formatPrice = (value) => currency.format(value).replace('Rp', 'Rp ');
 const productCategoryLabel = (category) => ({ laptop: 'Laptop', aksesoris: 'Aksesoris', part_copotan: 'Part copotan', gadget: 'Gadget' }[category] || category);
 const formatSpecs = (specs = {}) => Object.entries(specs).filter(([key, value]) => key !== 'grade_condition' && !key.endsWith('_note') && value).flatMap(([, value]) => Array.isArray(value) ? value : typeof value === 'object' ? Object.values(value).filter(Boolean) : value).join(' · ') || 'Spesifikasi belum diisi';
 const shortInventorySpecs = (specs = {}) => [['CPU', specs.processor], ['GPU', specs.gpu], ['RAM', specs.memory], ['SSD', specs.storage], ['Layar', specs.display]].map(([label, value]) => [label, Array.isArray(value) ? value.filter(Boolean).join(', ') : typeof value === 'object' && value ? Object.values(value).filter(Boolean).join(', ') : String(value || '')]).filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`).join(' · ');
-const pageTitle = (page) => ({ kasir: 'Kasir baru', servis: 'Antrian servis', riwayat: 'Riwayat transaksi', inventori: 'Inventori', pelanggan: 'Pelanggan', kas: 'Kas toko', laporan: 'Laporan keuangan', rekonsiliasi: 'Rekonsiliasi data lama', pengaturan: 'Pengaturan', users: 'Manajemen user', user: 'Profil pengguna' }[page] || 'Workspace');
+const pageTitle = (page) => ({ kasir: 'Kasir baru', servis: 'Antrian servis', riwayat: 'Riwayat transaksi', inventori: 'Inventori', pembelian: 'Pembelian supplier', pelanggan: 'Pelanggan', kas: 'Kas toko', laporan: 'Laporan keuangan', rekonsiliasi: 'Rekonsiliasi data lama', pengaturan: 'Pengaturan', users: 'Manajemen user', user: 'Profil pengguna' }[page] || 'Workspace');
 const escapePrintText = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 
 function printReceipt(receipt) {
@@ -419,6 +420,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
           {can('admin', 'kasir') && <NavButton icon={<ClipboardList size={18} />} label="Riwayat transaksi" active={activePage === 'riwayat'} onClick={() => setActivePage('riwayat')} />}
           <p className="nav-label secondary-label">Kelola</p>
           {can('admin', 'kasir', 'teknisi') && <NavButton icon={<ShoppingBag size={18} />} label="Inventori" active={activePage === 'inventori'} onClick={() => setActivePage('inventori')} />}
+          {can('admin', 'kasir') && <NavButton icon={<ClipboardList size={18} />} label="Pembelian supplier" active={activePage === 'pembelian'} onClick={() => setActivePage('pembelian')} />}
           {can('admin', 'kasir') && <NavButton icon={<UsersRound size={18} />} label="Pelanggan" active={activePage === 'pelanggan'} onClick={() => setActivePage('pelanggan')} />}
           {can('admin', 'kasir') && <NavButton icon={<CircleDollarSign size={18} />} label="Kas toko" active={activePage === 'kas'} onClick={() => setActivePage('kas')} />}
           {can('admin') && <NavButton icon={<BarChart3 size={18} />} label="Laporan" active={activePage === 'laporan'} onClick={() => setActivePage('laporan')} />}
@@ -442,6 +444,7 @@ function MainApp({ authUser, onAuthUserUpdated, onLogout }) {
         ) : activePage === 'servis' && can('admin', 'kasir', 'teknisi') ? <ServiceView serviceTickets={loadedServiceTickets} setToast={setToast} onChangeStatus={can('admin', 'teknisi') ? changeServiceStatus : undefined} onCancelStatus={can('admin', 'teknisi') ? cancelService : undefined} onManageAccounting={can('admin', 'teknisi') ? setServiceAccountingTarget : undefined} canCreate={can('admin', 'kasir')} canManage={can('admin', 'teknisi')} openServiceModal={() => setModal('service')} />
             : activePage === 'riwayat' && can('admin', 'kasir') ? <TransactionHistory transactions={transactions} freightFulfillments={freightFulfillments} onPrint={reprintTransaction} onSettle={settleTransaction} onRefund={setRefundTarget} onFreight={setFreightTarget} onPayFreight={setFreightPaymentTarget} />
             : activePage === 'inventori' ? <InventoryView products={inventoryProducts} openProductModal={can('admin', 'kasir') ? () => { setEditingProduct(null); setModal('product'); } : undefined} onEditProduct={can('admin', 'kasir') ? (product) => { setEditingProduct(product); setModal('product'); } : undefined} onDeleteProduct={can('admin', 'kasir') ? deleteInventoryProduct : undefined} onPrintLabel={can('admin', 'kasir') ? printProductLabel : undefined} onImportProducts={can('admin', 'kasir') ? importProductFile : undefined} onDownloadTemplate={can('admin', 'kasir') ? downloadProductTemplate : undefined} />
+              : activePage === 'pembelian' && can('admin', 'kasir') ? <PurchasePage onToast={setToast} />
               : activePage === 'pelanggan' && can('admin', 'kasir') ? <CustomerView customers={customers} openCustomerModal={can('admin', 'kasir') ? () => setModal('customer') : undefined} onImportCustomers={can('admin', 'kasir') ? importAroniumCustomerFile : undefined} />
                 : activePage === 'kas' && can('admin', 'kasir') ? <CashLedgerPage onToast={setToast} />
                 : activePage === 'laporan' && can('admin') ? <FinancialReportsPage onToast={setToast} />
