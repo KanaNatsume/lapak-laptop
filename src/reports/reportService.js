@@ -214,7 +214,7 @@ export function payables(query) {
   const dates = period(query, { asOfOnly: true });
   const rows = db.prepare(`SELECT accounts.code, accounts.name, accounts.type, SUM(journal_lines.credit - journal_lines.debit) AS balance
     FROM accounts JOIN journal_lines ON journal_lines.account_id = accounts.id JOIN journal_entries ON journal_entries.id = journal_lines.journal_entry_id
-    WHERE journal_entries.status = 'posted' AND journal_entries.posting_date <= ? AND accounts.code IN ('2100', '2300', '2400') GROUP BY accounts.id HAVING balance > 0`).all(dates.to);
+    WHERE journal_entries.status = 'posted' AND journal_entries.posting_date <= ? AND accounts.code IN ('2100', '2300', '2400', '2510') GROUP BY accounts.id HAVING balance > 0`).all(dates.to);
   return { as_of: dates.to, rows, total: rows.reduce((sum, row) => sum + row.balance, 0) };
 }
 

@@ -71,6 +71,82 @@ test('security headers: API sends CSP and same-origin camera permission', async 
   assert.match(health.headers.get('permissions-policy') || '', /camera=\(self\)/);
 });
 
+test('cash advances create operating expense and payable, then reimburse without duplicating expense', async () => {
+  const unauthorized = await request('/api/cash-advances', { method: 'POST', token: tokens.technician, body: JSON.stringify({}) });
+  assert.equal(unauthorized.status, 403);
+
+  const invalid = await request('/api/cash-advances', {
+    method: 'POST',
+    token: tokens.admin,
+    body: JSON.stringify({ lenderName: 'Febry', category: 'Pembelian part', description: 'SSD untuk stok jual', amount: 90000, expenseDate: '2026-10-10', expenseAccountCode: '1320', idempotencyKey: 'advance-invalid' })
+  });
+  assert.equal(invalid.status, 400);
+
+  const payload = {
+    lenderName: 'Febry',
+    category: 'Makan/minum',
+    description: 'Makan malam karyawan',
+    amount: 90000,
+    expenseDate: '2026-10-10',
+    expenseAccountCode: '6200',
+    idempotencyKey: 'advance-meal-001'
+  };
+  const created = await request('/api/cash-advances', { method: 'POST', token: tokens.admin, body: JSON.stringify(payload) });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.outstanding_amount, 90000);
+  assert.equal(created.body.duplicate, false);
+  assert.equal((await request('/api/reports/payables?as_of=2026-10-10', { token: tokens.admin })).body.total, 90000);
+  const duplicate = await request('/api/cash-advances', { method: 'POST', token: tokens.admin, body: JSON.stringify(payload) });
+  assert.equal(duplicate.body.duplicate, true);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM journal_entries WHERE source_type = 'cash_advance_expense'").get().count, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM cash_entries WHERE category = 'Penggantian talangan'").get().count, 0);
+
+  const firstPayment = {
+    amount: 30000,
+    paidDate: '2026-10-11',
+    cashAccountCode: '1110',
+    idempotencyKey: 'advance-payment-001'
+  };
+  const paid = await request(`/api/cash-advances/${created.body.id}/reimbursements`, { method: 'POST', token: tokens.admin, body: JSON.stringify(firstPayment) });
+  assert.equal(paid.status, 201);
+  assert.equal(paid.body.expense.outstanding_amount, 60000);
+  const duplicatePayment = await request(`/api/cash-advances/${created.body.id}/reimbursements`, { method: 'POST', token: tokens.admin, body: JSON.stringify(firstPayment) });
+  assert.equal(duplicatePayment.body.duplicate, true);
+  const overpayment = await request(`/api/cash-advances/${created.body.id}/reimbursements`, {
+    method: 'POST',
+    token: tokens.admin,
+    body: JSON.stringify({ amount: 60001, paidDate: '2026-10-11', cashAccountCode: '1110', idempotencyKey: 'advance-payment-over' })
+  });
+  assert.equal(overpayment.status, 400);
+  assert.equal((await request('/api/cash-entries?from=2026-10-10&to=2026-10-11', { token: tokens.admin })).body.summary.pengeluaran, 30000);
+
+  const finalPayment = await request(`/api/cash-advances/${created.body.id}/reimbursements`, {
+    method: 'POST',
+    token: tokens.admin,
+    body: JSON.stringify({ amount: 60000, paidDate: '2026-10-12', cashAccountCode: '1120', idempotencyKey: 'advance-payment-002' })
+  });
+  assert.equal(finalPayment.body.expense.outstanding_amount, 0);
+  const outstanding = await request('/api/cash-advances?from=2026-10-10&to=2026-10-12', { token: tokens.admin });
+  assert.equal(outstanding.body.outstanding, 0);
+  assert.equal(outstanding.body.expenses[0].reimbursed_amount, 90000);
+  assert.equal((await request('/api/reports/payables?as_of=2026-10-12', { token: tokens.admin })).body.total, 0);
+  assert.equal((await request('/api/reports/profit-loss?from=2026-10-10&to=2026-10-12', { token: tokens.admin })).body.operating_expenses, 90000);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM cash_entries WHERE category = 'Penggantian talangan'").get().count, 2);
+  const debtBalance = db.prepare(`SELECT COALESCE(SUM(journal_lines.credit - journal_lines.debit), 0) AS balance
+    FROM journal_lines JOIN accounts ON accounts.id = journal_lines.account_id
+    JOIN journal_entries ON journal_entries.id = journal_lines.journal_entry_id
+    WHERE accounts.code = '2510' AND journal_entries.status = 'posted'`).get().balance;
+  assert.equal(debtBalance, 0);
+
+  const ownerExpense = await request('/api/cash-advances', {
+    method: 'POST',
+    token: tokens.admin,
+    body: JSON.stringify({ lenderName: 'Febry', category: 'Pengeluaran pribadi owner', description: 'Pribadi Kevin', amount: 25000, expenseDate: '2026-10-13', expenseAccountCode: '3120', idempotencyKey: 'advance-owner-001' })
+  });
+  assert.equal(ownerExpense.status, 201);
+  assert.equal((await request('/api/reports/profit-loss?from=2026-10-13&to=2026-10-13', { token: tokens.admin })).body.operating_expenses, 0);
+});
+
 test('financial reports use posted journals, period filters, and reconcile balance sheet', async () => {
   const post = (sourceId, lines, date = '2025-01-15') => postJournal(db, {
     entryDate: date, postingDate: date, source: { type: 'report_fixture', id: sourceId, event: 'recognition' },

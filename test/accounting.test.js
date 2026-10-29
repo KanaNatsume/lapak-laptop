@@ -48,7 +48,7 @@ test('versioned accounting migration backs up legacy data and journal posting is
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM journal_entries').get().count, 0);
     assert.equal(db.prepare("SELECT id FROM customers WHERE name = 'Legacy Customer'").get().id > 0, true);
     assert.ok(db.prepare("SELECT id FROM accounts WHERE code = '1310' AND is_postable = 1").get());
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 16);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count, 18);
 
     const unit = createInventoryUnit(db, { productId: legacyProductId, sourceType: 'supplier', sourceReference: 'SUP-TEST-01', sourceLabel: 'Supplier fixture', acquiredAt: '2026-10-09', acquisitionCost: 2000000, condition: 'B', createdBy: userId });
     assert.equal(unit.status, 'received');

@@ -11,15 +11,16 @@ Status: implementasi laporan selesai pada 19 Oktober 2026. Sumber laporan adalah
 
 ## Audit aktual
 
-- Tidak ada service/controller/route laporan keuangan sebelumnya.
+- Pengeluaran operasional ditalangi melalui `/api/cash-advances` memakai akun utang talangan `2510`; jurnal penggantian mendebit utang dan mengkredit akun kas/bank, tanpa membebankan ulang biaya.
+- Sebelum implementasi laporan, belum ada service/controller/route laporan keuangan.
 - Jurnal berada pada `journal_entries` dan `journal_lines`, dengan akun pada `accounts`. Jurnal `reversed` tidak termasuk query posted; jurnal pembalik berstatus `posted` tetap termasuk.
 - Pendapatan penjualan, servis, dan ongkir memakai akun `4100`, `4200`, `4300`. Retur/diskon memakai `4900`.
 - HPP laptop, servis, dan spare part memakai `5100`, `5200`, `5110`.
 - Kas/bank/QRIS memakai `1110`, `1120`, `1130`; piutang `1200`; persediaan laptop/spare part/gadget `1310`, `1320`, `1330`; prepaid ekspedisi `1400`.
-- Utang supplier, uang muka pelanggan, teknisi eksternal, dan ekspedisi memakai `2100`, `2200`, `2300`, `2400`.
+- Utang supplier, uang muka pelanggan, teknisi eksternal, ekspedisi, dan talangan memakai `2100`, `2200`, `2300`, `2400`, `2510`.
 - Unit laptop dan biaya kapitalisasi tersedia melalui `inventory_units` dan `inventory_unit_costs`. Layer spare part FIFO tersedia melalui `part_stock_layers` dan `remaining_cost`.
 - Piutang invoice dihitung dari akun `1200`; pembayaran memakai `transaction_payment_events`. Utang supplier berasal dari jurnal pembelian dan utang teknisi/ekspedisi dari tabel operasional serta jurnal `2300`/`2400`.
-- Belum ada saldo awal, prive, aset tetap, atau jurnal cash-entry manual yang terhubung ke akun buku besar. Laporan harus menampilkan keterbatasan ini, bukan membuat angka penyeimbang.
+- Belum ada saldo awal, prive, aset tetap, atau jurnal cash-entry manual yang terhubung ke akun buku besar. Laporan harus menampilkan keterbatasan ini, bukan membuat angka penyeimbang. Catatan pengeluaran manual lama tetap perlu direkonsiliasi; catatan talangan baru dijurnal langsung.
 - Workflow additive rekonsiliasi tersedia di `/api/reconciliation/*` untuk saldo awal, review valuasi legacy, dan draft mapping `cash_entries`; workflow ini belum dijalankan pada database produksi.
 
 ## Laporan

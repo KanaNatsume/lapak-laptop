@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  HandCoins,
   Pencil,
   Plus,
   Trash2,
@@ -12,8 +13,11 @@ import {
 } from "lucide-react";
 import {
   createCashEntry,
+  createCashAdvance,
   deleteCashEntry,
+  getCashAdvances,
   getCashEntries,
+  reimburseCashAdvance,
   updateCashEntry,
 } from "../api/cash.js";
 import "./cash-ledger.css";
@@ -27,6 +31,14 @@ const emptyForm = {
   amount: "",
   entry_date: today,
 };
+const emptyAdvanceForm = {
+  lenderName: "Febry",
+  category: "Makan/minum",
+  description: "",
+  amount: "",
+  expenseDate: today,
+  expenseAccountCode: "6200",
+};
 const money = new Intl.NumberFormat("id-ID", {
   style: "currency",
   currency: "IDR",
@@ -39,9 +51,14 @@ export default function CashLedgerPage({ onToast }) {
     entries: [],
     summary: { pemasukan_manual: 0, pengeluaran: 0, penjualan: 0 },
   });
+  const [advanceData, setAdvanceData] = useState({ expenses: [], outstanding: 0 });
   const [form, setForm] = useState(emptyForm);
+  const [advanceForm, setAdvanceForm] = useState(emptyAdvanceForm);
+  const [repayment, setRepayment] = useState(null);
+  const [repaymentForm, setRepaymentForm] = useState({ amount: "", paidDate: today, cashAccountCode: "1110" });
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [showAdvanceForm, setShowAdvanceForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -51,11 +68,69 @@ export default function CashLedgerPage({ onToast }) {
   async function load() {
     setLoading(true);
     try {
-      setData(await getCashEntries(range.from, range.to));
+      const [cash, advances] = await Promise.all([
+        getCashEntries(range.from, range.to),
+        getCashAdvances(range.from, range.to),
+      ]);
+      setData(cash);
+      setAdvanceData(advances);
     } catch (requestError) {
       onToast(requestError.message);
     } finally {
       setLoading(false);
+    }
+  }
+  function openAdvanceForm() {
+    setAdvanceForm({ ...emptyAdvanceForm, expenseDate: range.to });
+    setError("");
+    setShowAdvanceForm(true);
+  }
+  async function submitAdvance(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await createCashAdvance({
+        ...advanceForm,
+        amount: Number(advanceForm.amount),
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setShowAdvanceForm(false);
+      await load();
+      onToast("Talangan dicatat sebagai utang toko");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  function openRepayment(expense) {
+    setRepayment(expense);
+    setRepaymentForm({
+      amount: String(expense.outstanding_amount),
+      paidDate: today,
+      cashAccountCode: "1110",
+    });
+    setError("");
+  }
+  async function submitRepayment(event) {
+    event.preventDefault();
+    if (!repayment) return;
+    setSaving(true);
+    setError("");
+    try {
+      await reimburseCashAdvance(repayment.id, {
+        ...repaymentForm,
+        amount: Number(repaymentForm.amount),
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setRepayment(null);
+      await load();
+      onToast("Penggantian talangan dicatat");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
     }
   }
   useEffect(() => {
@@ -144,6 +219,9 @@ export default function CashLedgerPage({ onToast }) {
           </p>
         </div>
         <div className="heading-actions">
+          <button className="button ghost" onClick={openAdvanceForm}>
+            <HandCoins size={16} /> Catat talangan
+          </button>
           <button
             className="button ghost"
             onClick={() => openCreate("pengeluaran")}
@@ -202,7 +280,7 @@ export default function CashLedgerPage({ onToast }) {
             <ArrowDownLeft size={18} />
             <span>Total pengeluaran</span>
             <strong>{money.format(data.summary.pengeluaran)}</strong>
-            <small>Termasuk refund dan biaya manual</small>
+            <small>Termasuk refund, penggantian talangan, dan biaya manual</small>
           </div>
           <div className="cash-summary-card balance">
             <CircleDollarSign size={18} />
@@ -324,6 +402,44 @@ export default function CashLedgerPage({ onToast }) {
             </div>
           )}
         </section>
+        <section className="panel cash-list-panel advance-panel">
+          <div className="panel-header">
+            <div>
+              <h2>Talangan pengeluaran toko</h2>
+              <p>Pengeluaran ditalangi tidak mengurangi kas toko sampai penggantian dibayar.</p>
+            </div>
+            <strong className="advance-outstanding">
+              Belum diganti {money.format(advanceData.outstanding)}
+            </strong>
+          </div>
+          {advanceData.expenses.length ? (
+            <div className="advance-list">
+              {advanceData.expenses.map((expense) => (
+                <div className="advance-row" key={expense.id}>
+                  <div>
+                    <strong>{expense.description}</strong>
+                    <small>
+                      {expense.category} · Ditalangi {expense.lender_name} · {expense.expense_date}
+                    </small>
+                  </div>
+                  <div>
+                    <strong>{money.format(expense.amount)}</strong>
+                    <small>
+                      Sudah diganti {money.format(expense.reimbursed_amount)} · Sisa {money.format(expense.outstanding_amount)}
+                    </small>
+                  </div>
+                  {expense.outstanding_amount > 0 ? (
+                    <button className="button ghost" onClick={() => openRepayment(expense)}>
+                      Catat penggantian
+                    </button>
+                  ) : <span className="advance-paid">Lunas</span>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">Belum ada talangan untuk periode ini.</div>
+          )}
+        </section>
       </section>
       {showForm && (
         <div className="modal-backdrop">
@@ -426,6 +542,48 @@ export default function CashLedgerPage({ onToast }) {
                   {saving ? "Menyimpan..." : "Simpan catatan"}
                 </button>
               </div>
+            </div>
+          </form>
+        </div>
+      )}
+      {showAdvanceForm && (
+        <div className="modal-backdrop">
+          <form className="modal-card" onSubmit={submitAdvance}>
+            <div className="modal-header">
+              <h2>Catat pengeluaran ditalangi</h2>
+              <button type="button" className="icon-button" onClick={() => setShowAdvanceForm(false)}><X size={18} /></button>
+            </div>
+            <div className="modal-form">
+              <p className="advance-notice">Untuk biaya operasional toko yang dibayar uang pribadi. Pembelian stok laptop/part dan pengeluaran pribadi owner dicatat melalui alur terpisah.</p>
+              <label className="form-field"><span>Ditalangi oleh<b>*</b></span><input required maxLength="120" value={advanceForm.lenderName} onChange={(event) => setAdvanceForm({ ...advanceForm, lenderName: event.target.value })} /></label>
+              <div className="form-grid">
+                <label className="form-field"><span>Kategori<b>*</b></span><select value={advanceForm.category} onChange={(event) => setAdvanceForm({ ...advanceForm, category: event.target.value, expenseAccountCode: event.target.value === "Operasional toko" ? "6300" : event.target.value === "Perbaikan abnormal" ? "6500" : event.target.value === "Pengeluaran pribadi owner" ? "3120" : "6200" })}><option>Makan/minum</option><option>Perlengkapan/konsumsi</option><option>Operasional toko</option><option>Perbaikan abnormal</option><option>Pengeluaran pribadi owner</option></select></label>
+                <label className="form-field"><span>Tanggal<b>*</b></span><input required type="date" value={advanceForm.expenseDate} onChange={(event) => setAdvanceForm({ ...advanceForm, expenseDate: event.target.value })} /></label>
+              </div>
+              <label className="form-field"><span>Keterangan<b>*</b></span><input required maxLength="500" value={advanceForm.description} onChange={(event) => setAdvanceForm({ ...advanceForm, description: event.target.value })} placeholder="Contoh: makan malam karyawan" /></label>
+              <label className="form-field"><span>Nominal<b>*</b></span><input required min="1" type="number" value={advanceForm.amount} onChange={(event) => setAdvanceForm({ ...advanceForm, amount: event.target.value })} /></label>
+              {error && <p className="login-error">{error}</p>}
+              <div className="modal-actions"><button type="button" className="button ghost" onClick={() => setShowAdvanceForm(false)}>Batal</button><button disabled={saving} type="submit" className="button primary">{saving ? "Menyimpan..." : "Simpan talangan"}</button></div>
+            </div>
+          </form>
+        </div>
+      )}
+      {repayment && (
+        <div className="modal-backdrop">
+          <form className="modal-card" onSubmit={submitRepayment}>
+            <div className="modal-header">
+              <h2>Ganti talangan · {repayment.lender_name}</h2>
+              <button type="button" className="icon-button" onClick={() => setRepayment(null)}><X size={18} /></button>
+            </div>
+            <div className="modal-form">
+              <p className="advance-notice">Sisa utang: {money.format(repayment.outstanding_amount)}. Pembayaran akan mengurangi kas toko dan utang, bukan mencatat beban baru.</p>
+              <label className="form-field"><span>Nominal penggantian<b>*</b></span><input required min="1" max={repayment.outstanding_amount} type="number" value={repaymentForm.amount} onChange={(event) => setRepaymentForm({ ...repaymentForm, amount: event.target.value })} /></label>
+              <div className="form-grid">
+                <label className="form-field"><span>Tanggal<b>*</b></span><input required type="date" value={repaymentForm.paidDate} onChange={(event) => setRepaymentForm({ ...repaymentForm, paidDate: event.target.value })} /></label>
+                <label className="form-field"><span>Dibayar dari<b>*</b></span><select value={repaymentForm.cashAccountCode} onChange={(event) => setRepaymentForm({ ...repaymentForm, cashAccountCode: event.target.value })}><option value="1110">Kas toko</option><option value="1120">Bank</option><option value="1130">QRIS</option></select></label>
+              </div>
+              {error && <p className="login-error">{error}</p>}
+              <div className="modal-actions"><button type="button" className="button ghost" onClick={() => setRepayment(null)}>Batal</button><button disabled={saving} type="submit" className="button primary">{saving ? "Menyimpan..." : "Catat penggantian"}</button></div>
             </div>
           </form>
         </div>
